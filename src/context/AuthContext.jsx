@@ -1,49 +1,45 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from '../firebase';
+import React, { createContext, useContext, useMemo, useState } from 'react';
+import { authService } from '../services/authService';
 
 const AuthContext = createContext();
+const SESSION_KEY = 'appSession';
 
 export function useAuth() {
   return useContext(AuthContext);
 }
 
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [role, setRole] = useState(localStorage.getItem('userRole') || null);
-  const [loading, setLoading] = useState(true);
+  const [session, setSession] = useState(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      return null;
+    }
+  });
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setLoading(false);
-    });
-    return unsubscribe;
-  }, []);
-
-  const loginUser = (user, selectedRole) => {
-    setCurrentUser(user);
-    setRole(selectedRole);
-    localStorage.setItem('userRole', selectedRole);
+  const loginWithPin = async ({ code, pin, role }) => {
+    const user = await authService.loginWithPin(code, pin, role);
+    const next = { user, role: user.role };
+    setSession(next);
+    localStorage.setItem(SESSION_KEY, JSON.stringify(next));
+    return user;
   };
 
   const logoutUser = () => {
-    auth.signOut();
-    setCurrentUser(null);
-    setRole(null);
-    localStorage.removeItem('userRole');
+    setSession(null);
+    localStorage.removeItem(SESSION_KEY);
   };
 
-  const value = {
-    currentUser,
-    role,
-    loginUser,
-    logoutUser
-  };
-
-  return (
-    <AuthContext.Provider value={value}>
-      {!loading && children}
-    </AuthContext.Provider>
+  const value = useMemo(
+    () => ({
+      currentUser: session?.user || null,
+      role: session?.role || null,
+      loginWithPin,
+      logoutUser,
+    }),
+    [session]
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

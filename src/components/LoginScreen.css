@@ -1,15 +1,15 @@
 .login-container {
   display: flex;
   justify-content: center;
-  align-items: center;
-  min-height: 100vh;
+  align-items: flex-start;
+  min-height: 100dvh;
   width: 100vw;
   background-color: #f3f4f6; /* light gray background bypassing dark mode */
-  position: fixed; /* ensure it covers any body styles completely */
-  top: 0;
-  left: 0;
+  position: relative;
+  padding: 1.5rem 0;
   z-index: 1000;
   font-family: 'Inter', system-ui, sans-serif;
+  overflow-y: auto;
 }
 
 .login-card {

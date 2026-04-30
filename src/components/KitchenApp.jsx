@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { collection, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { useAuth } from '../context/AuthContext';
+import { menuService } from '../services/menuService';
+import { kotService } from '../services/kotService';
+import { cancelService } from '../services/cancelService';
 import './KitchenApp.css';
 
 export default function KitchenApp() {
+  const { currentUser } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [kots, setKots] = useState([]);
   const [pendingActions, setPendingActions] = useState({});
@@ -13,12 +16,7 @@ export default function KitchenApp() {
 
   // Fetch Menu listener
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'menu'), snapshot => {
-      const items = [];
-      snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
-      setMenuItems(items);
-    });
-    return () => unsubscribe();
+    return menuService.subscribeMenu(setMenuItems);
   }, []);
 
   // Live Clock Interval
@@ -29,77 +27,20 @@ export default function KitchenApp() {
 
   // Fetch KOTs listener
   useEffect(() => {
-    // Only query where kotStatus is open to avoid composite index error.
-    const q = query(
-      collection(db, "kots"), 
-      where("kotStatus", "==", "open")
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedKots = [];
-      snapshot.forEach(doc => {
-        fetchedKots.push({ id: doc.id, ...doc.data() });
-      });
-      // Sort ascending, oldest KOTs first
-      fetchedKots.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis() || 0;
-        const timeB = b.createdAt?.toMillis() || 0;
-        return timeA - timeB;
-      });
-      
-      setKots(fetchedKots);
-    });
-
-    return () => unsubscribe();
+    return kotService.subscribeOpen(setKots);
   }, []);
 
   // Fetch Cancellation Requests listener
   useEffect(() => {
-    const q = query(
-      collection(db, "cancellation_requests"), 
-      where("status", "==", "pending_approval")
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const reqs = [];
-      snapshot.forEach(doc => reqs.push({ id: doc.id, ...doc.data() }));
-      setCancellationRequests(reqs);
-    });
-    return () => unsubscribe();
+    return cancelService.subscribePending(setCancellationRequests);
   }, []);
 
   const updateItemStatus = async (kotId, itemId, newStatus) => {
     const kot = kots.find(k => k.id === kotId);
     if (!kot) return;
 
-    // Create a deep copy of items to mutate
-    const updatedItems = kot.items.map(item => {
-      if (item.itemId === itemId) {
-        return { ...item, status: newStatus };
-      }
-      return item;
-    });
-
     try {
-      await updateDoc(doc(db, 'kots', kotId), { items: updatedItems });
-      
-      if (newStatus === 'out_of_stock') {
-        try {
-          await updateDoc(doc(db, 'menu', String(itemId)), { outOfStock: true });
-        } catch (e) {
-          console.error("Failed to sync outOfStock to menu:", e);
-        }
-      }
-      
-      const allDoneOrOos = updatedItems.every(i => ['done', 'removed', 'out_of_stock', 'cancelled'].includes(i.status));
-      if (allDoneOrOos) {
-         setTimeout(async () => {
-           try {
-             await updateDoc(doc(db, 'kots', kotId), { kotStatus: 'cleared' });
-           } catch (e) {
-             console.error("Error auto-clearing KOT:", e);
-           }
-         }, 1000);
-      }
+      await kotService.markItemStatus({ kotId, itemId, status: newStatus, kitchenUserId: currentUser?.id || null });
     } catch (err) {
       console.error("Error updating item status:", err);
     }
@@ -139,7 +80,7 @@ export default function KitchenApp() {
 
   const updateMenuStatus = async (itemId, isOos) => {
     try {
-      await updateDoc(doc(db, 'menu', String(itemId)), { outOfStock: isOos });
+      await menuService.setOutOfStock(itemId, isOos);
     } catch (e) {
       console.error("Failed to update menu status:", e);
     }
@@ -147,32 +88,11 @@ export default function KitchenApp() {
 
   const handleCancelResponse = async (req, isApprove) => {
     try {
-      if (isApprove) {
-        await updateDoc(doc(db, 'cancellation_requests', req.id), { status: 'approved' });
-        
-        const kot = kots.find(k => k.id === req.originalKotId);
-        if (kot) {
-          const updatedItems = kot.items.map(item => {
-            if (item.itemId === req.itemId) {
-              return { ...item, status: 'cancelled' };
-            }
-            return item;
-          });
-          
-          await updateDoc(doc(db, 'kots', req.originalKotId), { items: updatedItems });
-          
-          const allResolved = updatedItems.every(i => ['done', 'removed', 'out_of_stock', 'cancelled'].includes(i.status));
-          if (allResolved) {
-             setTimeout(async () => {
-               try {
-                 await updateDoc(doc(db, 'kots', req.originalKotId), { kotStatus: 'cleared' });
-               } catch (e) {}
-             }, 1000);
-          }
-        }
-      } else {
-        await updateDoc(doc(db, 'cancellation_requests', req.id), { status: 'rejected' });
-      }
+      await cancelService.reviewCancel({
+        request: req,
+        reviewerUserId: currentUser?.id || null,
+        approve: isApprove,
+      });
     } catch (e) {
       console.error("Error handling cancellation request:", e);
     }
@@ -181,7 +101,8 @@ export default function KitchenApp() {
   const getElapsedTime = (createdAt) => {
     if (!createdAt) return "Just now";
     
-    const diffMs = currentTime.getTime() - createdAt.toMillis();
+    const created = createdAt instanceof Date ? createdAt.getTime() : new Date(createdAt).getTime();
+    const diffMs = currentTime.getTime() - created;
     const diffMins = Math.floor(diffMs / 60000);
     
     if (diffMins < 1) return "< 1 min ago";
@@ -219,6 +140,11 @@ export default function KitchenApp() {
                       <span className="cr-name">{req.itemName}</span>
                       <span className="cr-qty">Qty: {req.qty}</span>
                     </div>
+                    {req.reason ? (
+                      <div className="kot-special-instructions">
+                        Reason: {req.reason}
+                      </div>
+                    ) : null}
                     <div className="cr-actions">
                       <button className="btn-cr-approve" onClick={() => handleCancelResponse(req, true)}>Approve</button>
                       <button className="btn-cr-reject" onClick={() => handleCancelResponse(req, false)}>Reject</button>
@@ -236,7 +162,7 @@ export default function KitchenApp() {
         ) : (
           <div className="kots-grid">
             {kots.map(kot => {
-              const elapsedMins = kot.createdAt ? Math.floor((currentTime.getTime() - kot.createdAt.toMillis()) / 60000) : 0;
+              const elapsedMins = kot.createdAt ? Math.floor((currentTime.getTime() - new Date(kot.createdAt).getTime()) / 60000) : 0;
               const isUrgent = elapsedMins >= 15;
               const shortId = '#' + kot.id.slice(-4).toUpperCase();
               const resolvedCount = kot.items?.filter(i => ['done','removed','out_of_stock','cancelled'].includes(i.status)).length || 0;

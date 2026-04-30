@@ -1,33 +1,31 @@
-# Firebase Collections Schema
+# SQL-First Schema
 
-This document outlines the desired structures for the KOT System Firestore collections.
-Note: Since Firestore is NoSQL, these collections won't be rigidly enforced but this structure must be used in the system logic.
+This app now follows a portable SQL-first architecture where:
 
-## `/tables`
-*   `tableId` (string)
-*   `status` ("available" | "occupied")
-*   `currentSessionId` (string | null)
+- Business rules live in the app service layer.
+- Supabase is the current SQL provider.
+- IDs are app-generated for portability.
 
-## `/kots`
-*   `kotId` *auto-generated document id*
-*   `tableNumber` (number)
-*   `items` (array of objects)
-    *   `itemId` (string)
-    *   `name` (string)
-    *   `price` (number)
-    *   `qty` (number)
-    *   `imageUrl` (string)
-    *   `status` ("pending" | "done")
-*   `createdAt` (timestamp)
-*   `kotStatus` ("open" | "cleared")
+Canonical DDL is in `sql/schema.sql`.
 
-## `/bills`
-*   `billId` *auto-generated document id*
-*   `tableNumber` (number)
-*   `kotIds` (array of strings)
-*   `subtotal` (number)
-*   `serviceCharge` (number)
-*   `tax` (number)
-*   `total` (number)
-*   `createdAt` (timestamp)
-*   `printed` (boolean)
+## Core tables
+
+- `users` (`waiter|kitchen|manager`, PIN login model)
+- `restaurant_tables`
+- `table_sessions`
+- `menu_items`
+- `kots`
+- `kot_items`
+- `cancel_requests`
+- `bills`
+- `bill_items`
+- `notifications`
+- `audit_logs`
+- `postprep_adjustments`
+
+## Provider boundary rule
+
+No component, screen, or service should import Supabase directly.
+
+- Allowed: `src/lib/db/`, `src/realtime/supabaseRealtimeAdapter.js`
+- Not allowed: `src/components/*`, `src/services/*`
