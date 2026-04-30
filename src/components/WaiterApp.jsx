@@ -1,8 +1,12 @@
 // src/components/WaiterApp.jsx
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
-import { collection, onSnapshot, query, addDoc, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore';
-import { db } from '../firebase';
+import { useAuth } from '../context/AuthContext';
+import { tableService } from '../services/tableService';
+import { menuService } from '../services/menuService';
+import { kotService } from '../services/kotService';
+import { cancelService } from '../services/cancelService';
+import { billingService } from '../services/billingService';
 import './WaiterApp.css';
 
 // ═══════════════════════════════════════════════════════════
@@ -13,13 +17,7 @@ function TableSelection() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(query(collection(db, 'tables')), snapshot => {
-      const rows = [];
-      snapshot.forEach(d => rows.push(d.data()));
-      rows.sort((a, b) => parseInt(a.tableId.replace('T', '')) - parseInt(b.tableId.replace('T', '')));
-      setTables(rows);
-    });
-    return () => unsubscribe();
+    return tableService.subscribeTables(setTables);
   }, []);
 
   const occupied = tables.filter(t => t.status === 'occupied').length;
@@ -60,6 +58,7 @@ function TableSelection() {
 function OrderPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { currentUser } = useAuth();
 
   // ── Menu ──────────────────────────────────────────────────
   const [activeCategory, setActiveCategory] = useState('Starters');
@@ -67,14 +66,7 @@ function OrderPage() {
   const [menuItems, setMenuItems] = useState([]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(collection(db, 'menu'), snapshot => {
-      const fetchedMenu = [];
-      snapshot.forEach(docSnap => {
-        fetchedMenu.push({ id: docSnap.id, ...docSnap.data() });
-      });
-      setMenuItems(fetchedMenu);
-    });
-    return () => unsubscribe();
+    return menuService.subscribeMenu(setMenuItems);
   }, []);
 
   const filteredMenu = menuItems.filter(item => item.category === activeCategory);
@@ -88,37 +80,14 @@ function OrderPage() {
   const [showSummary, setShowSummary] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(query(collection(db, 'kots')), snapshot => {
-      const fetchedCleared = [];
-      const fetchedOpen = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.tableNumber === parseInt(id)) {
-          if (data.kotStatus === 'cleared') {
-            fetchedCleared.push({ _docId: docSnap.id, ...data });
-          } else if (data.kotStatus === 'open') {
-            fetchedOpen.push({ _docId: docSnap.id, ...data });
-          }
-        }
-      });
-      setClearedKots(fetchedCleared);
-      setOpenKots(fetchedOpen);
+    return kotService.subscribeByTable(parseInt(id), ({ clearedKots: nextCleared, openKots: nextOpen }) => {
+      setClearedKots(nextCleared);
+      setOpenKots(nextOpen);
     });
-    return () => unsubscribe();
   }, [id]);
 
   useEffect(() => {
-    const unsubscribe = onSnapshot(query(collection(db, 'cancellation_requests')), snapshot => {
-      const fetchedReqs = [];
-      snapshot.forEach(docSnap => {
-        const data = docSnap.data();
-        if (data.tableNumber === parseInt(id)) {
-          fetchedReqs.push({ id: docSnap.id, ...data });
-        }
-      });
-      setCancellationRequests(fetchedReqs);
-    });
-    return () => unsubscribe();
+    return cancelService.subscribeByTable(parseInt(id), setCancellationRequests);
   }, [id]);
 
   // Only "done" items count toward billing
@@ -179,14 +148,12 @@ function OrderPage() {
   const submitKOT = async () => {
     if (checkedItems.length === 0) return;
     try {
-      await addDoc(collection(db, 'kots'), {
+      await kotService.createKotFromCart({
         tableNumber: parseInt(id),
+        waiterUserId: currentUser?.id || null,
         items: checkedItems.map(({ isChecked, ...rest }) => rest),
         specialInstructions,
-        createdAt: serverTimestamp(),
-        kotStatus: 'open',
       });
-      await updateDoc(doc(db, 'tables', `T${id}`), { status: 'occupied' });
       setToast(`KOT sent to kitchen for Table ${id}`);
       setTimeout(() => setToast(''), 3000);
       setCartItems(prev => {
@@ -205,15 +172,14 @@ function OrderPage() {
   const handlePrint = async () => {
     if (!hasConsumed) return;
     try {
-      await addDoc(collection(db, 'bills'), {
+      await billingService.createBillForTable({
         tableNumber: parseInt(id),
-        kotIds: clearedKots.map(k => k._docId),
+        waiterUserId: currentUser?.id || null,
+        clearedKots,
         subtotal: consumedSubtotal,
         serviceCharge: serviceChargeAmt,
         tax: taxAmt,
         total: grandTotal,
-        createdAt: serverTimestamp(),
-        printed: true,
       });
     } catch (err) {
       console.error('Failed saving bill:', err);
@@ -224,16 +190,22 @@ function OrderPage() {
   const handleCancelItem = async (kot, item) => {
     const confirmCancel = window.confirm(`Cancel ${item.name} from KOT #${(kot._docId || '').slice(-4).toUpperCase()}? This will notify the kitchen.`);
     if (!confirmCancel) return;
+    const reasonInput = window.prompt('Why are you cancelling this item? (visible to kitchen)', 'Customer changed mind');
+    const reason = (reasonInput || '').trim();
+    if (!reason) {
+      alert('Cancellation reason is required.');
+      return;
+    }
 
     try {
-      await addDoc(collection(db, 'cancellation_requests'), {
+      await cancelService.requestCancel({
         tableNumber: parseInt(id),
         itemId: item.itemId,
         itemName: item.name,
         qty: item.qty,
         originalKotId: kot._docId,
-        status: 'pending_approval',
-        requestedAt: serverTimestamp()
+        waiterUserId: currentUser?.id || null,
+        reason,
       });
       setToast('Cancellation requested');
       setTimeout(() => setToast(''), 3000);
@@ -250,8 +222,7 @@ function OrderPage() {
     );
     if (!ok) return;
     try {
-      await Promise.all(clearedKots.map(kot => deleteDoc(doc(db, 'kots', kot._docId))));
-      await updateDoc(doc(db, 'tables', `T${id}`), { status: 'available', currentSessionId: null });
+      await kotService.clearTable(parseInt(id), currentUser?.id || null);
       localStorage.removeItem(CART_KEY);
     } catch (err) {
       console.error('Failed clearing table:', err);
@@ -444,7 +415,13 @@ function OrderPage() {
                               {isPending && (
                                 <div className="log-item-actions">
                                   {hasCancelReq ? (
-                                    <span className="cancel-badge">Cancellation Requested</span>
+                                    <span className="cancel-badge">
+                                      Cancellation Requested
+                                      {(() => {
+                                        const req = cancellationRequests.find(r => r.originalKotId === kot._docId && r.itemId === item.itemId);
+                                        return req?.reason ? `: ${req.reason}` : '';
+                                      })()}
+                                    </span>
                                   ) : (
                                     <button className="btn-cancel-item" onClick={() => handleCancelItem(kot, item)}>Cancel</button>
                                   )}

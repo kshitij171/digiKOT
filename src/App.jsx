@@ -2,8 +2,11 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import WaiterApp from './components/WaiterApp';
 import KitchenApp from './components/KitchenApp';
+import ManagerApp from './components/ManagerApp';
+import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { authService } from './services/authService';
 
 const ProtectedRoute = () => {
   const { currentUser, role, logoutUser } = useAuth();
@@ -13,6 +16,8 @@ const ProtectedRoute = () => {
   let screenName = "Dashboard";
   if (location.pathname.includes("waiter")) screenName = "Waiter";
   if (location.pathname.includes("kitchen")) screenName = "Kitchen Display";
+  if (location.pathname.includes("manager")) screenName = "Manager";
+  if (location.pathname.includes("notifications")) screenName = "Notifications";
 
   return (
     <div className="app-container">
@@ -41,15 +46,18 @@ const ProtectedRoute = () => {
 
 function AppRoutes() {
   const { currentUser, role } = useAuth();
+  const homeRoute = authService.getRouteForRole(role || 'waiter');
 
   return (
     <Routes>
-      <Route path="/login" element={!currentUser ? <LoginScreen /> : <Navigate to={`/${role || 'waiter'}`} />} />
+      <Route path="/login" element={!currentUser ? <LoginScreen /> : <Navigate to={homeRoute} />} />
 
       <Route element={<ProtectedRoute />}>
         <Route path="/waiter/*" element={<WaiterApp />} />
         <Route path="/kitchen" element={<KitchenApp />} />
-        <Route path="/" element={<Navigate to={`/${role || 'waiter'}`} />} />
+        <Route path="/manager" element={<ManagerApp />} />
+        <Route path="/notifications" element={<NotificationCenter />} />
+        <Route path="/" element={<Navigate to={homeRoute} />} />
       </Route>
     </Routes>
   );
