@@ -1,0 +1,77 @@
+# Production-style stack: prebuilt images, no application source bind mounts.
+# Run from local-first/: docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d
+#
+# license.key is NEVER baked into images — mount ./license read-only at runtime only.
+
+name: digikot-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-digikot}
+      POSTGRES_USER: ${POSTGRES_USER:-digikot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - digikot_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    networks:
+      - digikot_internal
+
+  mosquitto:
+    build:
+      context: ./mosquitto
+      dockerfile: Dockerfile
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+    restart: unless-stopped
+    networks:
+      - digikot_internal
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    env_file:
+      - deploy/.env
+    environment:
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+    volumes:
+      - ./license:/app/license:ro
+      - digikot_backups:/backups
+    restart: unless-stopped
+    networks:
+      - digikot_internal
+
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    networks:
+      - digikot_internal
+
+volumes:
+  digikot_pg_data:
+  digikot_backups:
+
+networks:
+  digikot_internal:
+    driver: bridge
