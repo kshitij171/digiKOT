@@ -1,0 +1,32 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kot-postgres
+    environment:
+      POSTGRES_USER: kot
+      POSTGRES_PASSWORD: kot_local_dev
+      POSTGRES_DB: kot_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - kot_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kot -d kot_local"]
+      interval: 3s
+      timeout: 5s
+      retries: 10
+
+  mosquitto:
+    build:
+      context: ./mosquitto
+      dockerfile: Dockerfile
+    container_name: kot-mosquitto
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/acl:/mosquitto/config/acl:ro
+    # passwd baked in Dockerfile for repeatable dev builds
+
+volumes:
+  kot_pg_data:

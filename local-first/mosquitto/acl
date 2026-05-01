@@ -1,0 +1,8 @@
+# Dev ACLs — tighten per-device topics in production.
+user kot_server
+topic readwrite kot/v1/#
+
+user esp_waiter_1
+topic read kot/v1/#
+topic write kot/v1/default/device/+/status
+topic write kot/v1/default/device/+/ack
