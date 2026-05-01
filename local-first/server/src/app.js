@@ -13,8 +13,13 @@ const pool = getPool(env.databaseUrl);
 
 const fastify = Fastify({ logger: true });
 
+const corsOrigin =
+  env.nodeEnv === 'production'
+    ? true
+    : ['http://localhost:5173', /^http:\/\/192\.168\.\d+\.\d+:5173$/];
+
 await fastify.register(cors, {
-  origin: ['http://localhost:5173', /^http:\/\/192\.168\.\d+\.\d+:5173$/],
+  origin: corsOrigin,
   credentials: true,
 });
 

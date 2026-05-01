@@ -2,6 +2,11 @@
 
 This directory is a **parallel implementation** of the digiKOT restaurant system: designed to run **entirely on your LAN** (Postgres + Node + browsers + ESP32), with **no dependency on Supabase or Firebase** for this path.
 
+**Long-form docs (onboarding / production / license):**
+
+- [`docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md`](docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md) — first implementation wave: architecture, DB, MQTT outbox, dev workflow.
+- [`docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md`](docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md) — Docker Option 3 Chunk 1, license strategy (current + planned), Git/secrets, how to run prod compose.
+
 The **existing app at the repository root** (`src/`, root `vite.config.js`, root `package.json`, Supabase client code) is intentionally **left alone**. When you work on local-first, you add or change files **only under `local-first/`**, so the legacy UI keeps working as today.
 
 ---
@@ -275,11 +280,58 @@ The scaffold prioritizes **infra + DB shape + health + devices + MQTT outbox + t
 - **Menu, tables, sessions, KOT lifecycle, billing, cancellations, audit** on the server.
 - Rich **Socket.IO** rooms and snapshot-on-connect for each role.
 - **`/devices`** registration flows, heartbeat ingestion, ACK persistence.
-- **nginx** compose profile for **single-URL** LAN installs.
+- **Signed license** enforcement (Chunk 2): verify on startup, guarded routes, Socket.IO.
+
+---
+
+## Production Docker (Option 3 — Chunk 1)
+
+Four services only: **postgres**, **mosquitto**, **server**, **nginx**. The **nginx** image builds [`web/`](web/) and serves **`dist/`** while proxying **`/api`** and **`/socket.io`** to the server. **Postgres is not published** to the LAN; **nginx** exposes **80**, **Mosquitto** exposes **1883**. There is **no separate `web` container**.
+
+**`license.key` is never baked into an image.** At runtime, compose bind-mounts `./license` read-only at `/app/license` on the server (Chunk 2 will read and verify it).
+
+### Files
+
+| File | Role |
+|------|------|
+| [`server/Dockerfile`](server/Dockerfile) | Production Node image: `npm ci --omit=dev`, copy app + [`db/`](db/) to `/db`, run as **non-root** `nodejs`, entrypoint runs migrations then `node src/app.js`. |
+| [`nginx/Dockerfile`](nginx/Dockerfile) | Multi-stage: build web, copy **`dist/`** into nginx; **no source maps** (`vite.config.js` sets `build.sourcemap: false`). |
+| [`nginx/nginx.prod.conf`](nginx/nginx.prod.conf) | Static SPA + reverse proxy to `server:3000`. |
+| [`docker-compose.prod.yml`](docker-compose.prod.yml) | Production compose; volumes for Postgres data and backups; **`./license:/app/license:ro`**. |
+| [`deploy/.env.example`](deploy/.env.example) | Copy to **`deploy/.env`**; set secrets and `DATABASE_URL` (host **`postgres`** inside compose). |
+
+### Build images (from `local-first/`)
+
+```bash
+docker build -f server/Dockerfile -t digikot-server:1.0.0 .
+docker build -f nginx/Dockerfile -t digikot-nginx:1.0.0 .
+```
+
+Compose can build the same tags:
+
+```bash
+cp deploy/.env.example deploy/.env
+# Edit deploy/.env: POSTGRES_*, DATABASE_URL, MQTT_*, strong passwords
+mkdir -p license
+# Place license.key in license/ when Chunk 2 is available (optional for Chunk 1 smoke test)
+
+docker compose -f docker-compose.prod.yml --env-file deploy/.env build
+docker compose -f docker-compose.prod.yml --env-file deploy/.env up -d
+```
+
+Open **http://SERVER_IP/** (port **80**) from a tablet on the same LAN. API calls go to **`/api/...`** on the same origin. MQTT clients use **SERVER_IP:1883**.
+
+### Assumptions (Chunk 1)
+
+- **Mosquitto** reuses the existing dev [`mosquitto/`](mosquitto/) image build (passwd baked at image build); production still bind-mounts **`mosquitto.conf`** and **`acl`** from the host bundle (config files, not app source).
+- **Migrations** run on every server start when **`RUN_MIGRATIONS_ON_START=1`** (default in `.env.example`); set to **`0`** after you pin migrations to a release process if you prefer.
+- **CORS** for the API uses **`origin: true`** when **`NODE_ENV=production`** so tablets hitting the LAN IP through nginx work without enumerating every subnet.
 
 ---
 
 ## Related docs
 
+- Deep dive: local-first history — [`docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md`](docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md)
+- Deep dive: production Docker + license workflows — [`docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md`](docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md)
 - Root functional write-up (product behavior reference): [`../FUNCTIONALITY_DEEP_DIVE.md`](../FUNCTIONALITY_DEEP_DIVE.md)
 - ESP topic and sketch notes: [`firmware/README.md`](firmware/README.md)
