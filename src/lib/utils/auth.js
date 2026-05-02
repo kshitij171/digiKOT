@@ -1,13 +1,11 @@
 export const ROLE_ROUTE_MAP = {
   waiter: '/waiter',
-  captain: '/waiter',
   kitchen_supervisor: '/kitchen',
   manager: '/manager',
 };
 
 export const ROLE_CODE_PREFIX = {
   waiter: 'W',
-  captain: 'C',
   kitchen_supervisor: 'K',
   manager: 'M',
 };
@@ -19,7 +17,7 @@ export function normalizePhone(phone) {
 }
 
 export function validatePin(pin) {
-  return /^\d{4,6}$/.test(String(pin || ''));
+  return /^\d{4}$/.test(String(pin || ''));
 }
 
 export async function hashPin(pin) {

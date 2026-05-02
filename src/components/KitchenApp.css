@@ -11,22 +11,66 @@
   background: var(--bg-dark);
 }
 
-/* Top bar */
+/* Top bar — gold luxury header */
 .kitchen-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 0 1.5rem;
-  height: 52px;
+  height: 58px;
   flex-shrink: 0;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
+  background: #1a1a2e;
+  border-bottom: 2px solid #c9a84c;
+}
+
+.kitchen-header-left {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+/* Brand logo block */
+.kitchen-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.kitchen-brand-logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #c9a84c, #9d7e33);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  font-weight: 900;
+  color: #1a1a2e;
+  font-style: italic;
+  flex-shrink: 0;
+}
+
+.kitchen-brand-name {
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #c9a84c;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+
+.kitchen-brand-sub {
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.4);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
 }
 
 .kitchen-header h2 {
   font-size: 1rem;
   font-weight: 700;
-  color: var(--text-main);
+  color: rgba(255,255,255,0.9);
   margin: 0;
   display: flex;
   align-items: center;
@@ -34,14 +78,15 @@
 }
 
 .live-clock {
-  font-size: 0.95rem;
+  font-size: 1rem;
   font-weight: 700;
-  color: var(--accent);
-  background: rgba(34,211,238,0.1);
-  padding: 0.25rem 0.75rem;
+  color: #c9a84c;
+  padding: 0.3rem 0.85rem;
   border-radius: 6px;
-  font-family: monospace;
-  border: 1px solid rgba(34,211,238,0.2);
+  font-family: 'Courier New', monospace;
+  border: 1px solid rgba(201,168,76,0.35);
+  background: rgba(201,168,76,0.08);
+  letter-spacing: 0.05em;
 }
 
 /* Scrollable grid area */
@@ -117,6 +162,43 @@
   font-size: 0.72rem;
   color: var(--text-muted);
   font-family: monospace;
+}
+
+.kot-waiter-tag {
+  font-size: 0.7rem;
+  color: #818cf8;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.kot-indent-ack {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+.btn-indent-ack {
+  padding: 0.25rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #1e293b;
+  background: #fbbf24;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.btn-indent-ack:hover {
+  background: #f59e0b;
+}
+
+.indent-acked {
+  font-size: 0.7rem;
+  color: #34d399;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .kot-time {

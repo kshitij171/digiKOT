@@ -10,7 +10,7 @@ insert into restaurants (id) values ('default') on conflict do nothing;
 create table if not exists users (
   id text primary key,
   restaurant_id text not null references restaurants(id) default 'default',
-  role text not null check (role in ('waiter', 'captain', 'kitchen_supervisor', 'manager')),
+  role text not null check (role in ('waiter', 'kitchen_supervisor', 'manager')),
   code text not null unique,
   name text not null,
   phone text not null unique,

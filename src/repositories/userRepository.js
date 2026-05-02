@@ -1,11 +1,27 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
 
 export const userRepository = {
-  async findByCodeAndRole(code, role) {
+  async findByPinHash(pinHash) {
     return dbAdapter.select('users', {
       filters: [
-        { column: 'code', value: code },
-        { column: 'role', value: role },
+        { column: 'pin_hash', value: pinHash },
+        { column: 'active', value: true },
+      ],
+      single: true,
+    });
+  },
+
+  async findByUsername(username) {
+    return dbAdapter.select('users', {
+      filters: [{ column: 'username', value: username }],
+      single: true,
+    });
+  },
+
+  async findActivePinHash(pinHash) {
+    return dbAdapter.select('users', {
+      filters: [
+        { column: 'pin_hash', value: pinHash },
         { column: 'active', value: true },
       ],
       single: true,

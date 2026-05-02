@@ -1,4 +1,5 @@
 import { kotRepository } from '../repositories/kotRepository';
+import { kotActionsRepository } from '../repositories/kotActionsRepository';
 import { tableService } from './tableService';
 import { menuService } from './menuService';
 import { auditService } from './auditService';
@@ -13,9 +14,16 @@ function mapKot(row) {
     _docId: row.id,
     id: row.id,
     tableNumber: row.table_number,
+    waiterUserId: row.waiter_user_id || null,
+    waiterUsername: row.waiter_username || null,
     specialInstructions: row.special_instructions || '',
     kotStatus: row.status,
     createdAt: row.created_at ? new Date(row.created_at) : null,
+    indentReceivedAt: row.indent_received_at ? new Date(row.indent_received_at) : null,
+    indentReceivedBy: row.indent_received_by || null,
+    cancelledAt: row.cancelled_at ? new Date(row.cancelled_at) : null,
+    cancelledBy: row.cancelled_by || null,
+    cancelReason: row.cancel_reason || null,
     items: (row.items || []).map((item) => ({
       itemId: item.menu_item_id,
       name: item.item_name_snapshot,
@@ -95,23 +103,75 @@ export const kotService = {
     });
   },
 
-  async createKotFromCart({ tableNumber, waiterUserId, items, specialInstructions }) {
+  async listRecent(limit = 30) {
+    const rows = await kotRepository.listRecent(limit);
+    return rows.map(mapKot);
+  },
+
+  // ── Audit list queries ────────────────────────────────────
+  async listIndentReceived({ fromDate, toDate } = {}) {
+    const rows = await kotRepository.listIndentReceived({ fromDate, toDate });
+    return rows.map(mapKot);
+  },
+
+  async listCancelledKots({ fromDate, toDate } = {}) {
+    const rows = await kotRepository.listCancelled({ fromDate, toDate });
+    return rows.map(mapKot);
+  },
+
+  // ── Mutations ─────────────────────────────────────────────
+  async createKotFromCart({ tableNumber, waiterUserId, waiterUsername, items, specialInstructions }) {
     const session = await tableService.ensureActiveSession(tableNumber, waiterUserId);
     const kotId = await kotRepository.createKot({
       sessionId: session.id,
       tableNumber,
       waiterUserId,
+      waiterUsername: waiterUsername || null,
       specialInstructions,
       items,
     });
+
+    await kotActionsRepository.logAction({
+      kotId,
+      action: 'created',
+      performedByWaiterId: waiterUserId,
+    }).catch((e) => console.warn('kot_actions log failed:', e));
+
     await auditService.log({
       actor_user_id: waiterUserId,
       action: 'create_kot',
       entity_type: 'kot',
       entity_id: kotId,
-      after_json: { tableNumber, itemCount: items.length },
+      after_json: { tableNumber, itemCount: items.length, waiterUsername: waiterUsername || null },
     });
     return kotId;
+  },
+
+  async acknowledgeIndent({ kotId, kitchenUserId }) {
+    await kotRepository.markIndentReceived(kotId, kitchenUserId);
+    await auditService.log({
+      actor_user_id: kitchenUserId,
+      action: 'INDENT_RECEIVED',
+      entity_type: 'kot',
+      entity_id: kotId,
+      after_json: { receivedAt: new Date().toISOString() },
+    });
+  },
+
+  async cancelKot({ kotId, cancelledBy, cancelReason }) {
+    await kotRepository.cancelKot(kotId, { cancelledBy, cancelReason });
+    await kotActionsRepository.logAction({
+      kotId,
+      action: 'cancelled',
+      performedByWaiterId: cancelledBy,
+    }).catch(() => {});
+    await auditService.log({
+      actor_user_id: cancelledBy,
+      action: 'CANCEL_KOT',
+      entity_type: 'kot',
+      entity_id: kotId,
+      remarks: cancelReason || null,
+    });
   },
 
   async markItemStatus({ kotId, itemId, status, kitchenUserId }) {
