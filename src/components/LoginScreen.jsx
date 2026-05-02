@@ -4,97 +4,107 @@ import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import './LoginScreen.css';
 
+const PIN_LENGTH = 4;
+
+const NUMPAD_KEYS = [
+  '1', '2', '3',
+  '4', '5', '6',
+  '7', '8', '9',
+  null, '0', 'del',
+];
+
 export default function LoginScreen() {
-  const [selectedRole, setSelectedRole] = useState('waiter');
-  const [code, setCode] = useState('W001');
-  const [pin, setPin] = useState('1234');
+  const [pin, setPin] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { loginWithPin } = useAuth();
   const navigate = useNavigate();
 
-  const handleRoleSelect = (role) => {
-    setSelectedRole(role);
-    if (role === 'waiter') {
-      setCode('W001');
-      setPin('');
-    } else if (role === 'kitchen_supervisor') {
-      setCode('K001');
-      setPin('');
-    } else if (role === 'manager') {
-      setCode('M001');
-      setPin('');
-    } else if (role === 'captain') {
-      setCode('C001');
-      setPin('');
+  const handleKey = (key) => {
+    if (loading) return;
+    setError('');
+
+    if (key === 'del') {
+      setPin((prev) => prev.slice(0, -1));
+      return;
     }
+
+    setPin((prev) => {
+      if (prev.length >= PIN_LENGTH) return prev;
+      const next = prev + key;
+      if (next.length === PIN_LENGTH) {
+        submitPin(next);
+      }
+      return next;
+    });
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError('');
+  const submitPin = async (pinValue) => {
     setLoading(true);
-
+    setError('');
     try {
-      const user = await loginWithPin({ code, pin, role: selectedRole });
+      const user = await loginWithPin(pinValue);
       navigate(authService.getRouteForRole(user.role));
     } catch (err) {
-      console.error(err);
-      setError(err.message || 'Failed to log in. Please check your credentials.');
+      setError(err.message || 'Incorrect PIN.');
+      setPin('');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="login-container">
-      <div className="login-card">
-        <h1 className="login-title">KOT System</h1>
+    <div className="numpad-screen">
+      <div className="numpad-card">
+        <div className="numpad-logo">
+          <span className="numpad-logo-letter">O</span>
+        </div>
+        <div className="numpad-brand">Opulence</div>
+        <div className="numpad-subtitle">Enter your PIN to continue</div>
 
-        {error && <div className="login-error">{error}</div>}
-
-        <div className="role-selector">
-          <button
-            type="button"
-            className={selectedRole === 'waiter' ? 'active' : ''}
-            onClick={() => handleRoleSelect('waiter')}>Waiter</button>
-          <button
-            type="button"
-            className={selectedRole === 'captain' ? 'active' : ''}
-            onClick={() => handleRoleSelect('captain')}>Captain</button>
-          <button
-            type="button"
-            className={selectedRole === 'kitchen_supervisor' ? 'active' : ''}
-            onClick={() => handleRoleSelect('kitchen_supervisor')}>Kitchen Supervisor</button>
-          <button
-            type="button"
-            className={selectedRole === 'manager' ? 'active' : ''}
-            onClick={() => handleRoleSelect('manager')}>Manager</button>
+        <div className="numpad-dots">
+          {Array.from({ length: PIN_LENGTH }).map((_, i) => (
+            <div
+              key={i}
+              className={`pin-dot ${i < pin.length ? 'filled' : ''} ${loading ? 'loading' : ''}`}
+            />
+          ))}
         </div>
 
-        <form onSubmit={handleLogin} className="login-form">
-          <div className="form-group">
-            <label>Staff Code</label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value.toUpperCase())}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>PIN</label>
-            <input
-              type="password"
-              value={pin}
-              onChange={(e) => setPin(e.target.value)}
-              required
-            />
-          </div>
-          <button type="submit" disabled={loading} className="login-submit">
-            {loading ? 'Logging in...' : 'Login'}
-          </button>
-        </form>
+        {error && <div className="numpad-error">{error}</div>}
+
+        <div className="numpad-grid">
+          {NUMPAD_KEYS.map((key, idx) => {
+            if (key === null) {
+              return <div key={idx} className="numpad-key empty" />;
+            }
+            if (key === 'del') {
+              return (
+                <button
+                  key={idx}
+                  className="numpad-key del-key"
+                  onClick={() => handleKey('del')}
+                  disabled={loading || pin.length === 0}
+                  aria-label="Delete"
+                >
+                  ⌫
+                </button>
+              );
+            }
+            return (
+              <button
+                key={idx}
+                className="numpad-key digit-key"
+                onClick={() => handleKey(key)}
+                disabled={loading || pin.length >= PIN_LENGTH}
+              >
+                {key}
+              </button>
+            );
+          })}
+        </div>
+
+        {loading && <div className="numpad-spinner">Verifying…</div>}
       </div>
     </div>
   );

@@ -86,6 +86,14 @@ export default function KitchenApp() {
     }
   };
 
+  const handleAcknowledgeIndent = async (kotId) => {
+    try {
+      await kotService.acknowledgeIndent({ kotId, kitchenUserId: currentUser?.id || null });
+    } catch (err) {
+      console.error('Failed to acknowledge indent:', err);
+    }
+  };
+
   const handleCancelResponse = async (req, isApprove) => {
     try {
       await cancelService.reviewCancel({
@@ -113,7 +121,13 @@ export default function KitchenApp() {
     <div className="kitchen-layout">
       <div className="kitchen-header">
         <div className="kitchen-header-left">
-          <h2>🧑‍🍳 Kitchen Display</h2>
+          <div className="kitchen-brand">
+            <span className="kitchen-brand-logo">O</span>
+            <div>
+              <div className="kitchen-brand-name">OPULENCE</div>
+              <div className="kitchen-brand-sub">Kitchen Display</div>
+            </div>
+          </div>
           <div className="k-tabs">
             <button className={`k-tab ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live Orders</button>
             <button className={`k-tab ${activeTab === 'oos' ? 'active' : ''}`} onClick={() => setActiveTab('oos')}>Out of Stock</button>
@@ -176,9 +190,26 @@ export default function KitchenApp() {
                     <div className="table-badge">Table {kot.tableNumber}</div>
                     <div className="kot-meta">
                       <div className="kot-id">{shortId}</div>
+                      {kot.waiterUsername && (
+                        <div className="kot-waiter-tag">Waiter: {kot.waiterUsername}</div>
+                      )}
                       <div className={`kot-time ${isUrgent ? 'urgent' : ''}`}>
                         {getElapsedTime(kot.createdAt)}
                       </div>
+                    </div>
+                    <div className="kot-indent-ack">
+                      {kot.indentReceivedAt ? (
+                        <span className="indent-acked">
+                          ✓ Received {kot.indentReceivedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      ) : (
+                        <button
+                          className="btn-indent-ack"
+                          onClick={() => handleAcknowledgeIndent(kot.id)}
+                        >
+                          Indent Received
+                        </button>
+                      )}
                     </div>
                   </div>
 

@@ -10,6 +10,9 @@ export function createSubscriptionController({
   let debounceTimer = null;
   let lastStatus = null;
 
+  const safeLoad = () =>
+    load().catch((err) => console.warn('[subscription load error]', err?.message || err));
+
   const stopFallback = () => {
     if (fallbackTimer) {
       clearInterval(fallbackTimer);
@@ -19,16 +22,12 @@ export function createSubscriptionController({
 
   const startFallback = () => {
     if (fallbackTimer) return;
-    fallbackTimer = setInterval(() => {
-      load();
-    }, fallbackMs);
+    fallbackTimer = setInterval(safeLoad, fallbackMs);
   };
 
   const debouncedLoad = () => {
     if (debounceTimer) clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => {
-      load();
-    }, debounceMs);
+    debounceTimer = setTimeout(safeLoad, debounceMs);
   };
 
   const handleStatus = (status) => {
@@ -37,7 +36,7 @@ export function createSubscriptionController({
     lastStatus = normalized;
     if (normalized === 'SUBSCRIBED') {
       stopFallback();
-      load();
+      safeLoad();
       return;
     }
     if (UNHEALTHY.has(normalized)) {
@@ -46,7 +45,7 @@ export function createSubscriptionController({
   };
 
   const unsubs = subscribeFns.map((subscribe) => subscribe(debouncedLoad, handleStatus));
-  load();
+  safeLoad();
 
   return () => {
     stopFallback();

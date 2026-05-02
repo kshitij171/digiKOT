@@ -8,15 +8,23 @@ import LoginScreen from './components/LoginScreen';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
 
+// Manager has its own full-page layout, topbar, and logout button — no outer shell needed.
+// Waiter and kitchen keep the outer shell because kitchen has no built-in logout button.
+const SELF_CONTAINED_ROLES = ['manager'];
+
 const ProtectedRoute = () => {
   const { currentUser, role, logoutUser } = useAuth();
   const location = useLocation();
+
   if (!currentUser) return <Navigate to="/login" />;
 
+  // Manager has its own full-page shell with topbar + logout — render without outer wrapper.
+  if (SELF_CONTAINED_ROLES.includes(role)) {
+    return <Outlet />;
+  }
+
+  // Fallback shell for any other protected routes (e.g. /notifications)
   let screenName = "Dashboard";
-  if (location.pathname.includes("waiter")) screenName = "Waiter";
-  if (location.pathname.includes("kitchen")) screenName = "Kitchen Display";
-  if (location.pathname.includes("manager")) screenName = "Manager";
   if (location.pathname.includes("notifications")) screenName = "Notifications";
 
   return (
@@ -25,7 +33,7 @@ const ProtectedRoute = () => {
         <h1 className="brand-logo">
           KOT System
           <span style={{ fontSize: '1rem', marginLeft: '12px', color: '#cbd5e1', fontWeight: 'normal' }}>
-            | {screenName} Screen ({role ? role.charAt(0).toUpperCase() + role.slice(1) : ''})
+            | {screenName}
           </span>
         </h1>
         <div className="nav-links">

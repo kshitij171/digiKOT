@@ -1,122 +1,224 @@
-.login-container {
+/* ═══════════════════════════════════════════════════════════
+   OPULENCE — PIN Login Screen (Luxury Dark Theme)
+   ═══════════════════════════════════════════════════════════ */
+
+.numpad-screen {
+  min-height: 100vh;
+  background: var(--brand-dark);
   display: flex;
+  align-items: center;
   justify-content: center;
-  align-items: flex-start;
-  min-height: 100dvh;
-  width: 100vw;
-  background-color: #f3f4f6; /* light gray background bypassing dark mode */
+  padding: 1rem;
   position: relative;
-  padding: 1.5rem 0;
-  z-index: 1000;
-  font-family: 'Inter', system-ui, sans-serif;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
-.login-card {
-  background: white;
-  padding: 2.5rem;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+/* Subtle background texture */
+.numpad-screen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(201,168,76,0.06) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 50%, rgba(201,168,76,0.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.numpad-card {
+  position: relative;
+  background: var(--brand-navy);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: 20px;
+  padding: 2.5rem 2rem;
   width: 100%;
-  max-width: 400px;
+  max-width: 340px;
+  box-shadow:
+    0 0 0 1px rgba(201,168,76,0.08),
+    0 20px 60px rgba(0,0,0,0.5),
+    0 2px 4px rgba(0,0,0,0.3);
   text-align: center;
 }
 
-.login-title {
-  font-size: 1.5rem;
-  font-weight: 700;
-  color: #111827;
-  margin-bottom: 1.5rem;
+/* ── Logo / Brand ───────────────────────────────────────── */
+.numpad-logo {
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.85rem;
+  box-shadow: 0 4px 20px rgba(201,168,76,0.35);
 }
 
-.login-error {
-  background-color: #fee2e2;
-  color: #b91c1c;
-  padding: 0.75rem;
-  border-radius: 4px;
+.numpad-logo-letter {
+  font-size: 1.6rem;
+  font-weight: 900;
+  color: var(--brand-dark);
+  font-style: italic;
+  line-height: 1;
+}
+
+.numpad-brand {
+  color: var(--gold);
+  font-size: 1.2rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+}
+
+.numpad-subtitle {
+  color: rgba(255,255,255,0.4);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 1.75rem;
+}
+
+/* ── PIN dots ───────────────────────────────────────────── */
+.numpad-dots {
+  display: flex;
+  justify-content: center;
+  gap: 0.85rem;
+  margin-bottom: 1.25rem;
+}
+
+.pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(201,168,76,0.4);
+  background: transparent;
+  transition: all 200ms ease;
+}
+
+.pin-dot.filled {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 0 8px rgba(201,168,76,0.5);
+  transform: scale(1.1);
+}
+
+.pin-dot.loading {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.3);
+  animation: dot-pulse 0.6s ease infinite alternate;
+}
+
+@keyframes dot-pulse {
+  from { opacity: 0.4; }
+  to   { opacity: 1; }
+}
+
+/* ── Error message ──────────────────────────────────────── */
+.numpad-error {
+  background: rgba(192,57,43,0.15);
+  border: 1px solid rgba(192,57,43,0.4);
+  color: #fca5a5;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
   margin-bottom: 1rem;
-  font-size: 0.875rem;
+  animation: shake 0.3s ease;
 }
 
-.role-selector {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 1.5rem;
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  25%      { transform: translateX(-6px); }
+  75%      { transform: translateX(6px); }
 }
 
-.role-selector button {
-  flex: 1;
-  padding: 0.5rem;
-  border: 1px solid #d1d5db;
-  background: #f9fafb;
-  border-radius: 4px;
+/* ── Numpad grid ────────────────────────────────────────── */
+.numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.65rem;
+}
+
+.numpad-key {
+  aspect-ratio: 1.2;
+  border-radius: 12px;
+  font-size: 1.35rem;
+  font-weight: 700;
   cursor: pointer;
-  font-size: 0.875rem;
-  color: #374151;
-  transition: all 0.2s;
-  font-family: 'Inter', system-ui, sans-serif;
-  font-weight: 500;
-}
-
-.role-selector button.active {
-  background: #4f46e5;
-  color: white;
-  border-color: #4f46e5;
-}
-
-.login-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  text-align: left;
-}
-
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.form-group label {
-  font-size: 0.875rem;
-  color: #374151;
-  font-weight: 500;
-}
-
-.form-group input {
-  padding: 0.5rem;
-  border: 1px solid #d1d5db;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-family: inherit;
-  color: #111827;
-}
-
-.form-group input:focus {
-  outline: none;
-  border-color: #4f46e5;
-  box-shadow: 0 0 0 1px #4f46e5;
-}
-
-.login-submit {
-  margin-top: 0.5rem;
-  background-color: #4f46e5;
-  color: white;
-  padding: 0.75rem;
   border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background-color 0.2s;
   font-family: inherit;
+  transition: all 150ms ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
 }
 
-.login-submit:hover:not(:disabled) {
-  background-color: #4338ca;
+.numpad-key.empty { background: transparent; cursor: default; pointer-events: none; }
+
+.numpad-key.digit-key {
+  background: rgba(255,255,255,0.07);
+  color: var(--text-light);
+  border: 1px solid rgba(255,255,255,0.1);
 }
 
-.login-submit:disabled {
-  opacity: 0.7;
+.numpad-key.digit-key:hover:not(:disabled) {
+  background: rgba(201,168,76,0.15);
+  border-color: rgba(201,168,76,0.4);
+  color: var(--gold);
+  transform: scale(1.04);
+}
+
+.numpad-key.digit-key:active:not(:disabled) {
+  transform: scale(0.96);
+  background: rgba(201,168,76,0.25);
+}
+
+.numpad-key.del-key {
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.5);
+  border: 1px solid rgba(255,255,255,0.08);
+  font-size: 1rem;
+}
+
+.numpad-key.del-key:hover:not(:disabled) {
+  background: rgba(192,57,43,0.15);
+  border-color: rgba(192,57,43,0.4);
+  color: #fca5a5;
+}
+
+.numpad-key:disabled {
+  opacity: 0.35;
   cursor: not-allowed;
+  transform: none !important;
+}
+
+/* ── Spinner ────────────────────────────────────────────── */
+.numpad-spinner {
+  margin-top: 1rem;
+  color: var(--gold);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  animation: fade-pulse 1s ease infinite alternate;
+}
+
+@keyframes fade-pulse {
+  from { opacity: 0.5; }
+  to   { opacity: 1; }
+}
+
+/* ── Gold divider ───────────────────────────────────────── */
+.numpad-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, rgba(201,168,76,0.3), transparent);
+  margin: 1.5rem 0 0.5rem;
+}
+
+/* ── Compat class (used in ManagerApp for validation errors) */
+.login-error {
+  background: rgba(192,57,43,0.12);
+  border: 1px solid rgba(192,57,43,0.35);
+  color: #f87171;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
 }

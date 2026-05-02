@@ -51,28 +51,50 @@ export const managerService = {
     });
   },
 
-  async registerStaff({ managerUser, name, phone, role, pin }) {
+  /**
+   * Create a new staff member.
+   * For waiters: username is required and must be unique.
+   * For all roles: PIN must be unique across all active users.
+   */
+  async registerStaff({ managerUser, name, phone, username, role, pin }) {
     assertManager(managerUser);
     if (!VALID_ROLES.includes(role)) throw new Error('Invalid role selected.');
+
     const cleanedName = String(name || '').trim();
     if (!cleanedName) throw new Error('Name is required.');
+
     const normalizedPhone = normalizePhone(phone);
     if (!normalizedPhone) throw new Error('Phone number is required.');
-    if (!validatePin(pin)) throw new Error('PIN must be 4-6 digits.');
+
+    if (!validatePin(pin)) throw new Error('PIN must be exactly 4 digits.');
+
+    const cleanedUsername = String(username || '').trim().toLowerCase();
+    if (role === 'waiter' && !cleanedUsername) throw new Error('Username is required for waiter accounts.');
+
+    if (cleanedUsername) {
+      const existingByUsername = await userRepository.findByUsername(cleanedUsername).catch(() => null);
+      if (existingByUsername) throw new Error('Username is already taken. Choose a different one.');
+    }
+
+    const pinHash = await hashPin(pin);
+    const existingByPin = await userRepository.findActivePinHash(pinHash).catch(() => null);
+    if (existingByPin) throw new Error('This PIN is already in use. Choose a different one.');
 
     const existing = await userRepository.findByPhoneAndRole(normalizedPhone, role).catch(() => null);
-    if (existing) throw new Error('Staff with this phone and role already exists.');
+    if (existing) throw new Error('A staff member with this phone number and role already exists.');
 
     const code = await nextCodeForRole(role);
     const userId = createId();
     const now = new Date().toISOString();
+
     await userRepository.createUser({
       id: userId,
       role,
       code,
+      username: cleanedUsername || null,
       name: cleanedName,
       phone: normalizedPhone,
-      pin_hash: await hashPin(pin),
+      pin_hash: pinHash,
       active: true,
       created_at: now,
       updated_at: now,
@@ -83,7 +105,7 @@ export const managerService = {
       action: 'STAFF_CREATED',
       entity_type: 'user',
       entity_id: userId,
-      after_json: { code, role, name: cleanedName, phone: normalizedPhone },
+      after_json: { code, role, name: cleanedName, phone: normalizedPhone, username: cleanedUsername || null },
     });
 
     return { userId, code };
@@ -94,20 +116,33 @@ export const managerService = {
     return userRepository.listUsers();
   },
 
-  async resetStaffPin({ managerUser, phone, role, newPin }) {
+  /**
+   * Reset a waiter's PIN by their username.
+   * Validates that the new PIN is not already in use by another active user.
+   */
+  async resetStaffPin({ managerUser, username, newPin }) {
     assertManager(managerUser);
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) throw new Error('Phone number is required.');
-    if (!validatePin(newPin)) throw new Error('PIN must be 4-6 digits.');
-    const user = await userRepository.findByPhoneAndRole(normalizedPhone, role);
-    if (!user) throw new Error('User not found for this phone and role.');
-    await userRepository.updatePinByUserId(user.id, await hashPin(newPin));
+
+    const cleanedUsername = String(username || '').trim().toLowerCase();
+    if (!cleanedUsername) throw new Error('Username is required.');
+    if (!validatePin(newPin)) throw new Error('New PIN must be exactly 4 digits.');
+
+    const user = await userRepository.findByUsername(cleanedUsername);
+    if (!user) throw new Error('No staff member found with that username.');
+
+    const newPinHash = await hashPin(newPin);
+    const conflict = await userRepository.findActivePinHash(newPinHash).catch(() => null);
+    if (conflict && conflict.id !== user.id) {
+      throw new Error('This PIN is already in use. Choose a different one.');
+    }
+
+    await userRepository.updatePinByUserId(user.id, newPinHash);
     await auditService.log({
       actor_user_id: managerUser.id,
       action: 'STAFF_PIN_RESET',
       entity_type: 'user',
       entity_id: user.id,
-      remarks: `${role}:${normalizedPhone}`,
+      remarks: `username:${cleanedUsername}`,
     });
   },
 

@@ -1,0 +1,100 @@
+/* ═══════════════════════════════════════════════════════════
+   OPULENCE RESTAURANT — Global Luxury Design System
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Brand */
+  --brand-dark:   #1a1a2e;
+  --brand-navy:   #16213e;
+  --brand-mid:    #252545;
+  --gold:         #c9a84c;
+  --gold-light:   #e2c472;
+  --gold-dark:    #9d7e33;
+  --gold-bg:      rgba(201, 168, 76, 0.12);
+
+  /* Backgrounds */
+  --bg-white:     #ffffff;
+  --bg-off:       #f7f6f2;
+  --bg-card:      #ffffff;
+  --bg-overlay:   rgba(0, 0, 0, 0.55);
+
+  /* Text */
+  --text-primary:   #1a1a1a;
+  --text-secondary: #5a5a5a;
+  --text-muted:     #9b9b9b;
+  --text-light:     #ffffff;
+  --text-sidebar:   rgba(255, 255, 255, 0.65);
+
+  /* Semantic */
+  --success:      #2d7a4f;
+  --success-bg:   rgba(45, 122, 79, 0.1);
+  --danger:       #c0392b;
+  --danger-bg:    rgba(192, 57, 43, 0.1);
+  --warning:      #d97706;
+  --info:         #2563eb;
+
+  /* Veg / Non-veg */
+  --veg-color:    #2d7a4f;
+  --nonveg-color: #c0392b;
+
+  /* Borders & Shadows */
+  --border:       #e8e5de;
+  --border-dark:  #d0cdc5;
+  --shadow-xs:    0 1px 3px rgba(0, 0, 0, 0.06);
+  --shadow-sm:    0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-md:    0 4px 20px rgba(0, 0, 0, 0.12);
+  --shadow-lg:    0 8px 40px rgba(0, 0, 0, 0.18);
+
+  /* Radii */
+  --radius-xs:  4px;
+  --radius-sm:  6px;
+  --radius-md:  10px;
+  --radius-lg:  14px;
+  --radius-xl:  20px;
+  --radius-full: 9999px;
+
+  /* Layout */
+  --sidebar-w:   200px;
+  --cart-w:      290px;
+  --topbar-h:    56px;
+
+  /* Typography */
+  --font-sans:  -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-serif: 'Georgia', 'Times New Roman', serif;
+
+  /* Transitions */
+  --t-fast:   100ms ease;
+  --t-normal: 200ms ease;
+  --t-slow:   350ms ease;
+}
+
+/* ── Global resets ──────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+  background: var(--bg-off);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar styling (webkit) ─────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-dark); border-radius: var(--radius-full); }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Utility classes ────────────────────────────────────── */
+.gold { color: var(--gold); }
+.text-muted { color: var(--text-muted); }
+.text-secondary { color: var(--text-secondary); }
+.hidden { display: none !important; }
+
+/* ── Gold divider line ──────────────────────────────────── */
+.gold-divider {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--gold), transparent);
+  border: none;
+  margin: 0;
+}
