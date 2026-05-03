@@ -6,6 +6,7 @@ This directory is a **parallel implementation** of the digiKOT restaurant system
 
 - [`docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md`](docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md) — first implementation wave: architecture, DB, MQTT outbox, dev workflow.
 - [`docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md`](docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md) — Docker Option 3 Chunk 1, license strategy (current + planned), Git/secrets, how to run prod compose.
+- [`docs/LAN_WIFI_ESP_RESTAURANT_TEST_PLAN.md`](docs/LAN_WIFI_ESP_RESTAURANT_TEST_PLAN.md) — Wi‑Fi router LAN test plan: laptop as server, tablet/phone clients, ESP32 MQTT, waiter-topic next steps.
 
 The **existing app at the repository root** (`src/`, root `vite.config.js`, root `package.json`, Supabase client code) is intentionally **left alone**. When you work on local-first, you add or change files **only under `local-first/`**, so the legacy UI keeps working as today.
 
@@ -194,7 +195,7 @@ npm run db:seed
 ```
 
 - **`db:migrate`** — applies [`db/migrations/`](db/migrations/) via **`node-pg-migrate`** (reads SQL from [`db/sql/`](db/sql/)).
-- **`db:seed`** — loads [`db/seed/dev_seed.sql`](db/seed/dev_seed.sql) (dev users, tables, sample device).
+- **`db:seed`** — loads [`db/seed/dev_seed.sql`](db/seed/dev_seed.sql) (dev staff with `users.username`, tables, sample device). If you migrated before `username` existed, run **`npm run db:migrate`** again so [`1715600000000_add_users_username.cjs`](db/migrations/1715600000000_add_users_username.cjs) applies, then **`npm run db:seed`**.
 
 ### 4. Run the API (terminal 1)
 
@@ -333,5 +334,6 @@ Open **http://SERVER_IP/** (port **80**) from a tablet on the same LAN. API call
 
 - Deep dive: local-first history — [`docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md`](docs/LOCAL_FIRST_IMPLEMENTATION_HISTORY.md)
 - Deep dive: production Docker + license workflows — [`docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md`](docs/PRODUCTION_DOCKER_LICENSE_AND_WORKFLOWS.md)
+- LAN + Wi‑Fi + ESP restaurant test plan — [`docs/LAN_WIFI_ESP_RESTAURANT_TEST_PLAN.md`](docs/LAN_WIFI_ESP_RESTAURANT_TEST_PLAN.md)
 - Root functional write-up (product behavior reference): [`../FUNCTIONALITY_DEEP_DIVE.md`](../FUNCTIONALITY_DEEP_DIVE.md)
 - ESP topic and sketch notes: [`firmware/README.md`](firmware/README.md)

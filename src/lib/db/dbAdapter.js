@@ -22,6 +22,10 @@ export const dbAdapter = {
         q = q.in(column, value);
         return;
       }
+      if (operator === 'is') {
+        q = q.is(column, value);
+        return;
+      }
       q = q[operator](column, value);
     });
     if (orderBy) q = q.order(orderBy, { ascending });
@@ -44,6 +48,10 @@ export const dbAdapter = {
         q = q.in(column, value);
         return;
       }
+      if (operator === 'is') {
+        q = q.is(column, value);
+        return;
+      }
       q = q[operator](column, value);
     });
     if (options.returning) q = q.select(options.returning);
@@ -55,6 +63,10 @@ export const dbAdapter = {
     filters.forEach(({ column, operator = 'eq', value }) => {
       if (operator === 'in') {
         q = q.in(column, value);
+        return;
+      }
+      if (operator === 'is') {
+        q = q.is(column, value);
         return;
       }
       q = q[operator](column, value);

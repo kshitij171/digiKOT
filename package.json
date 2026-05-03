@@ -12,7 +12,8 @@
     "supabase:status": "npx supabase status",
     "supabase:reset": "npx supabase db reset",
     "dev:local": "npm run supabase:start && vite",
-    "dev:lan": "vite --host 0.0.0.0"
+    "dev:lan": "vite --host 0.0.0.0",
+    "pager-bridge": "node pager-bridge/src/index.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",

@@ -5,6 +5,7 @@ import { authService } from '../services/authService';
 import './LoginScreen.css';
 
 const PIN_LENGTH = 4;
+const POST_LOGIN_REDIRECT_KEY = 'postLoginRedirect';
 
 const NUMPAD_KEYS = [
   '1', '2', '3',
@@ -44,6 +45,13 @@ export default function LoginScreen() {
     setError('');
     try {
       const user = await loginWithPin(pinValue);
+      const redirect = sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
+      if (redirect === '/pager-register' && user.role === 'manager') {
+        sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
+        navigate('/pager-register');
+        return;
+      }
+      sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
       navigate(authService.getRouteForRole(user.role));
     } catch (err) {
       setError(err.message || 'Incorrect PIN.');
@@ -105,6 +113,19 @@ export default function LoginScreen() {
         </div>
 
         {loading && <div className="numpad-spinner">Verifying…</div>}
+
+        <div className="numpad-footer">
+          <button
+            type="button"
+            className="numpad-footer-link"
+            onClick={() => {
+              sessionStorage.setItem(POST_LOGIN_REDIRECT_KEY, '/pager-register');
+            }}
+          >
+            Pager Add
+          </button>
+          <span className="numpad-footer-hint"> — register ESP (manager PIN)</span>
+        </div>
       </div>
     </div>
   );

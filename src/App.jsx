@@ -5,6 +5,7 @@ import KitchenApp from './components/KitchenApp';
 import ManagerApp from './components/ManagerApp';
 import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
+import PagerRegisterPage from './components/PagerRegisterPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
 
@@ -26,6 +27,7 @@ const ProtectedRoute = () => {
   // Fallback shell for any other protected routes (e.g. /notifications)
   let screenName = "Dashboard";
   if (location.pathname.includes("notifications")) screenName = "Notifications";
+  if (location.pathname.includes("pager-register")) screenName = "Pager setup";
 
   return (
     <div className="app-container">
@@ -64,6 +66,7 @@ function AppRoutes() {
         <Route path="/waiter/*" element={<WaiterApp />} />
         <Route path="/kitchen" element={<KitchenApp />} />
         <Route path="/manager" element={<ManagerApp />} />
+        <Route path="/pager-register" element={<PagerRegisterPage />} />
         <Route path="/notifications" element={<NotificationCenter />} />
         <Route path="/" element={<Navigate to={homeRoute} />} />
       </Route>

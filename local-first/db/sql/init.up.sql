@@ -12,6 +12,7 @@ create table if not exists users (
   restaurant_id text not null references restaurants(id) default 'default',
   role text not null check (role in ('waiter', 'kitchen_supervisor', 'manager')),
   code text not null unique,
+  username text not null unique,
   name text not null,
   phone text not null unique,
   pin_hash text not null,
