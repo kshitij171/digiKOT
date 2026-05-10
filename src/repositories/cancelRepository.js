@@ -2,6 +2,13 @@ import { dbAdapter } from '../lib/db/dbAdapter';
 import { createId } from '../lib/utils/id';
 
 export const cancelRepository = {
+  async findById(id) {
+    return dbAdapter.select('cancel_requests', {
+      filters: [{ column: 'id', value: id }],
+      single: true,
+    });
+  },
+
   async listByTable(tableNumber) {
     return dbAdapter.select('cancel_requests', {
       filters: [{ column: 'table_number', value: tableNumber }],

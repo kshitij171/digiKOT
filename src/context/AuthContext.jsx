@@ -34,7 +34,14 @@ export function AuthProvider({ children }) {
       );
     }
 
-    const next = { user, role: user.role, waiterSessionId };
+    const next = {
+      user,
+      role: user.role,
+      waiterSessionId,
+      // Kitchen supervisor identity — used for KOT first-touch ownership tagging
+      supervisorId: user.role === 'kitchen_supervisor' ? user.id : null,
+      supervisorName: user.role === 'kitchen_supervisor' ? (user.username || user.name || null) : null,
+    };
     setSession(next);
     localStorage.setItem(SESSION_KEY, JSON.stringify(next));
     return user;
@@ -55,6 +62,8 @@ export function AuthProvider({ children }) {
     () => ({
       currentUser: session?.user || null,
       role: session?.role || null,
+      supervisorId: session?.supervisorId || null,
+      supervisorName: session?.supervisorName || null,
       loginWithPin,
       logoutUser,
     }),

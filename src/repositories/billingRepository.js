@@ -24,6 +24,19 @@ export const billingRepository = {
     await dbAdapter.insert('bill_items', items.map((item) => ({ id: createId(), ...item })));
   },
 
+  async listBills({ fromDate, toDate, search } = {}) {
+    let q = supabase.from('bills').select('*, bill_items(*)');
+    if (fromDate) q = q.gte('created_at', fromDate);
+    if (toDate) q = q.lte('created_at', toDate);
+    if (search) {
+      const s = search.trim();
+      if (s) q = q.or(`waiter_username.ilike.%${s}%,id.ilike.%${s}%`);
+    }
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(500);
+    if (error) throw error;
+    return data || [];
+  },
+
   async listRecent(limit = 30) {
     return dbAdapter.select('bills', {
       orderBy: 'created_at',

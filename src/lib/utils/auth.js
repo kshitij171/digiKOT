@@ -4,12 +4,6 @@ export const ROLE_ROUTE_MAP = {
   manager: '/manager',
 };
 
-export const ROLE_CODE_PREFIX = {
-  waiter: 'W',
-  kitchen_supervisor: 'K',
-  manager: 'M',
-};
-
 export const VALID_ROLES = Object.keys(ROLE_ROUTE_MAP);
 
 export function normalizePhone(phone) {

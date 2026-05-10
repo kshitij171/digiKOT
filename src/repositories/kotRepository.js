@@ -2,6 +2,7 @@ import { dbAdapter } from '../lib/db/dbAdapter';
 import { supabase } from '../lib/db/supabaseClient';
 import { createId } from '../lib/utils/id';
 
+
 const RESOLVED = ['done', 'removed', 'out_of_stock', 'cancelled'];
 
 async function attachItems(kots) {
@@ -26,9 +27,40 @@ export const kotRepository = {
     });
   },
 
+  /** Full KOT row plus kot_items (for audit feed detail). */
+  async getByIdWithItems(kotId) {
+    const kot = await this.getById(kotId);
+    if (!kot) return null;
+    const withItems = await attachItems([kot]);
+    return withItems[0] || null;
+  },
+
   async listByTable(tableNumber) {
     const kots = await dbAdapter.select('kots', {
       filters: [{ column: 'table_number', value: tableNumber }],
+      orderBy: 'created_at',
+      ascending: true,
+    });
+    return attachItems(kots);
+  },
+
+  /** All KOTs for a table session (manager audit bill reconstruction). */
+  async listBySession(sessionId) {
+    if (!sessionId) return [];
+    const kots = await dbAdapter.select('kots', {
+      filters: [{ column: 'session_id', value: sessionId }],
+      orderBy: 'created_at',
+      ascending: true,
+    });
+    return attachItems(kots);
+  },
+
+  /** Load specific KOT rows with items (when session_id is missing on bill). */
+  async listByIds(kotIds) {
+    const ids = [...new Set((kotIds || []).filter(Boolean))];
+    if (!ids.length) return [];
+    const kots = await dbAdapter.select('kots', {
+      filters: [{ column: 'id', operator: 'in', value: ids }],
       orderBy: 'created_at',
       ascending: true,
     });
@@ -54,13 +86,30 @@ export const kotRepository = {
   },
 
   // ── Audit queries ─────────────────────────────────────────
-  async listIndentReceived({ fromDate, toDate } = {}) {
-    let q = supabase.from('kots').select('*').not('indent_received_at', 'is', null);
-    if (fromDate) q = q.gte('indent_received_at', fromDate);
-    if (toDate) q = q.lte('indent_received_at', toDate);
-    const { data, error } = await q.order('indent_received_at', { ascending: false }).limit(200);
+
+  /**
+   * Paginated cleared KOTs owned by a specific supervisor.
+   * Returns { rows, total } — rows already have items attached.
+   */
+  async listClearedBySupervisor(supervisorId, { offset = 0, limit = 20 } = {}) {
+    const base = supabase
+      .from('kots')
+      .eq('status', 'cleared')
+      .eq('supervisor_id', supervisorId);
+
+    const { count } = await base.select('*', { count: 'exact', head: true });
+
+    const { data, error } = await supabase
+      .from('kots')
+      .select('*')
+      .eq('status', 'cleared')
+      .eq('supervisor_id', supervisorId)
+      .order('cleared_at', { ascending: false })
+      .range(offset, offset + limit - 1);
+
     if (error) throw error;
-    return attachItems(data || []);
+    const rows = await attachItems(data || []);
+    return { rows, total: count || 0 };
   },
 
   async listCancelled({ fromDate, toDate } = {}) {
@@ -86,6 +135,10 @@ export const kotRepository = {
       status: 'open',
       created_at: now,
       updated_at: now,
+      cleared_at: null,
+      supervisor_id: null,
+      supervisor_name: null,
+      assigned_at: null,
     });
     await dbAdapter.insert(
       'kot_items',
@@ -98,22 +151,31 @@ export const kotRepository = {
         price_snapshot: item.price,
         image_url: item.imageUrl,
         status: item.status || 'pending',
+        removed_qty: null,
+        final_qty: null,
         updated_at: now,
       }))
     );
     return kotId;
   },
 
-  async markIndentReceived(kotId, receivedBy) {
-    return dbAdapter.update(
-      'kots',
-      {
-        indent_received_at: new Date().toISOString(),
-        indent_received_by: receivedBy || null,
+  /**
+   * Stamp supervisor ownership on the KOT — no-op if already assigned.
+   * Uses a conditional update (WHERE supervisor_id IS NULL) so only the
+   * first-touch supervisor ever gets written.
+   */
+  async assignSupervisor(kotId, supervisorId, supervisorName) {
+    const { error } = await supabase
+      .from('kots')
+      .update({
+        supervisor_id: supervisorId,
+        supervisor_name: supervisorName || null,
+        assigned_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      },
-      [{ column: 'id', value: kotId }]
-    );
+      })
+      .eq('id', kotId)
+      .is('supervisor_id', null);
+    if (error) throw error;
   },
 
   async cancelKot(kotId, { cancelledBy, cancelReason }) {
@@ -127,6 +189,42 @@ export const kotRepository = {
         updated_at: new Date().toISOString(),
       },
       [{ column: 'id', value: kotId }]
+    );
+  },
+
+  /**
+   * Reduce a KOT item's quantity by removalQty (manager-approved removal).
+   * Sets status to 'removed_entirely' if qty drops to 0, else 'partially_removed'.
+   * final_qty holds the effective billed quantity; removed_qty records how much was taken off.
+   */
+  async applyPartialRemoval(kotId, menuItemId, removalQty) {
+    const current = await dbAdapter.select('kot_items', {
+      filters: [
+        { column: 'kot_id', value: kotId },
+        { column: 'menu_item_id', value: menuItemId },
+      ],
+      single: true,
+    });
+    if (!current) throw new Error(`kot_item not found for kot=${kotId} item=${menuItemId}`);
+
+    const originalQty = Number(current.qty) || 0;
+    const removal = Number(removalQty) || 0;
+    const newQty = Math.max(0, originalQty - removal);
+    const fullyRemoved = newQty === 0;
+    const removedQtyStored = fullyRemoved ? originalQty : removal;
+
+    await dbAdapter.update(
+      'kot_items',
+      {
+        removed_qty: removedQtyStored,
+        final_qty: newQty,
+        status: fullyRemoved ? 'removed_entirely' : 'partially_removed',
+        updated_at: new Date().toISOString(),
+      },
+      [
+        { column: 'kot_id', value: kotId },
+        { column: 'menu_item_id', value: menuItemId },
+      ]
     );
   },
 

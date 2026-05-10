@@ -2,6 +2,48 @@
    WAITER APP — Luxury Restaurant UI
    ═══════════════════════════════════════════════════════════ */
 
+/*
+ * index.css (dark admin theme) is loaded AFTER theme.css in main.jsx, so its :root
+ * values override theme.css where variable names collide:
+ *   --bg-card  → dark navy (#1e2736) instead of white (#ffffff)
+ *   --border   → near-invisible white rgba instead of warm grey
+ *   body color → near-white (#f0f6fc) instead of dark (#1a1a1a)
+ *
+ * Fix: re-scope the correct values inside the waiter app root containers so all
+ * waiter UI descends from correct variable values regardless of load order.
+ */
+.w-page1-layout,
+.order-layout {
+  --bg-card:   #ffffff;
+  --bg-white:  #ffffff;
+  --bg-off:    #f7f6f2;
+  --border:    #e8e5de;
+  --border-dark: #d0cdc5;
+  --text-primary:   #1a1a1a;
+  --text-secondary: #5a5a5a;
+  --text-muted:     #9b9b9b;
+  color: var(--text-primary);
+}
+
+/*
+ * Fixed-position overlays (.summary-overlay) escape layout stacking but still
+ * inherit CSS custom properties through the DOM tree from their parent. However,
+ * set explicit color here as a fallback for browsers that may not cascade correctly
+ * through fixed elements in some edge cases.
+ */
+.summary-overlay,
+.summary-modal {
+  --bg-card:   #ffffff;
+  --bg-white:  #ffffff;
+  --bg-off:    #f7f6f2;
+  --border:    #e8e5de;
+  --border-dark: #d0cdc5;
+  --text-primary:   #1a1a1a;
+  --text-secondary: #5a5a5a;
+  --text-muted:     #9b9b9b;
+  color: var(--text-primary);
+}
+
 /* ── PAGE 1: Table Selection ────────────────────────────── */
 .w-page1-layout {
   min-height: 100vh;
@@ -270,34 +312,46 @@
   flex-shrink: 0;
 }
 
-.order-search-wrap {
-  flex: 1;
+/* ── Full-width menu search bar ─────────────────────────── */
+.menu-search-bar {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 40px;
+  padding: 0 1rem;
+  gap: 0;
+  flex-shrink: 0;
+  background: var(--bg-white);
+  border-bottom: 1px solid var(--border);
   position: relative;
-  max-width: 320px;
 }
 
-.order-search-icon {
+.menu-search-icon {
   position: absolute;
-  left: 0.65rem;
+  left: 1.75rem;
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-muted);
   font-size: 0.85rem;
   pointer-events: none;
+  z-index: 1;
 }
 
-.order-search {
+.menu-search-input {
+  flex: 1;
   width: 100%;
-  padding: 0.4rem 0.75rem 0.4rem 2rem;
+  min-width: 0;
+  height: 100%;
+  padding: 8px 12px 8px 2.25rem;
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   background: var(--bg-off);
   color: var(--text-primary);
   font-family: inherit;
   transition: border-color var(--t-fast);
 }
-.order-search:focus {
+.menu-search-input:focus {
   outline: none;
   border-color: var(--gold);
   background: var(--bg-white);
@@ -798,7 +852,7 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: var(--text-muted);
+  color: #5a5a5a;
   margin: 0 0 0.6rem;
 }
 
@@ -836,14 +890,57 @@
 }
 .log-item-row.resolved-row { opacity: 0.5; }
 
+.log-approval-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 0.15rem;
+  padding-left: 0.35rem;
+}
+
+.log-price-zero {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .log-item-info {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   flex: 1;
 }
+
+.log-item-info.log-item-info--stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
 .log-qty { color: var(--text-muted); }
 .log-price { font-weight: 600; color: var(--text-secondary); }
+
+/* ── Partial / full removal indicators ── */
+.log-qty-was {
+  font-size: 0.75em;
+  color: var(--text-muted);
+  font-style: italic;
+  margin-left: 0.15rem;
+}
+.log-item-struck {
+  text-decoration: line-through;
+  opacity: 0.55;
+}
+.removed-entirely-row {
+  opacity: 0.6;
+}
+.log-removed-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(107, 114, 128, 0.15);
+  color: #9b9b9b;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
 
 .log-item-actions { flex-shrink: 0; }
 .btn-cancel-item {
@@ -858,14 +955,56 @@
 }
 .cancel-badge {
   font-size: 0.68rem;
-  color: var(--warning);
-  font-style: italic;
+  color: #92400e;
+  background: #fef3c7;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  font-weight: 600;
 }
 
 .log-note {
   font-size: 0.75rem;
   color: var(--text-secondary);
   margin-top: 0.35rem;
+  font-style: italic;
+}
+
+.topbar-pending-removal {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--warning, #d97706);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: rgba(217, 119, 6, 0.12);
+  white-space: nowrap;
+}
+
+.bill-mod-pending-banner {
+  font-size: 0.82rem;
+  color: var(--warning, #d97706);
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: rgba(217, 119, 6, 0.08);
+  margin-bottom: 0.5rem;
+}
+
+.bill-mod-reject-banner {
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: rgba(192, 57, 43, 0.08);
+  border: 1px solid rgba(192, 57, 43, 0.2);
+  margin-bottom: 0.45rem;
+}
+
+.bill-mod-reject-main {
+  font-size: 0.84rem;
+  color: var(--danger);
+}
+
+.bill-mod-reject-hint {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
   font-style: italic;
 }
 
@@ -908,8 +1047,36 @@
   font-family: inherit;
   text-align: center;
   background: var(--bg-white);
+  color: var(--text-primary);
 }
 .billing-input-group input:focus { outline: none; border-color: var(--gold); }
+
+/* Discount warning (> 50%) */
+.billing-discount-warning {
+  background: #fef3c7;
+  color: #92400e;
+  border: 1px solid #fcd34d;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  margin: 0.25rem 0;
+}
+
+/* Category tag visible in search results */
+.menu-card-category-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: var(--gold-dark);
+  background: rgba(201,168,76,0.12);
+  border: 1px solid rgba(201,168,76,0.25);
+  border-radius: var(--radius-xs);
+  padding: 0.08rem 0.35rem;
+  display: inline-block;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.15rem;
+}
 
 /* ── Print Receipt ──────────────────────────────────────── */
 .print-receipt-container { display: none; }
