@@ -33,16 +33,16 @@ on conflict (id) do nothing;
 -- ---------------------------------------------------------------------------
 insert into menu_items (id, name, category, price, description, image_url, out_of_stock)
 values
-  ('s1', 'Paneer Tikka',          'Starters',    250.00, 'Grilled cottage cheese cubes marinated in spices.',    '/assets/paneer_tikka.png',          false),
-  ('s2', 'Chicken 65',            'Starters',    300.00, 'Spicy, deep-fried chicken bites.',                     '/assets/chicken_65.png',            false),
-  ('s3', 'Spring Rolls',          'Starters',    180.00, 'Crispy rolls stuffed with seasoned vegetables.',       '/assets/spring_rolls.png',          false),
-  ('s4', 'Mushroom Salt & Pepper','Starters',    220.00, 'Crispy fried mushrooms tossed with salt and pepper.',  '/assets/mushroom_salt_pepper.png',  false),
-  ('m1', 'Butter Chicken',        'Main Course', 450.00, 'Tender chicken simmered in a creamy tomato gravy.',    '/assets/butter_chicken.png',        false),
-  ('m2', 'Dal Makhani',           'Main Course', 350.00, 'Slow-cooked black lentils with butter and cream.',     '/assets/dal_makhani.png',           false),
-  ('m3', 'Mutton Biryani',        'Main Course', 550.00, 'Aromatic basmati rice cooked with tender mutton.',     '/assets/mutton_biryani.png',        false),
-  ('m4', 'Palak Paneer',          'Main Course', 380.00, 'Cottage cheese in thick spinach gravy.',               'https://images.unsplash.com/photo-1601050690597-df0568f70950?auto=format&fit=crop&q=80&w=500', false),
-  ('d1', 'Mango Lassi',           'Drinks',      120.00, 'Refreshing yogurt-based mango drink.',                 'https://images.unsplash.com/photo-1570197782352-25de0b2bcf1b?auto=format&fit=crop&q=80&w=500', false),
-  ('d2', 'Cold Coffee',           'Drinks',      150.00, 'Chilled coffee blended with vanilla ice cream.',       'https://images.unsplash.com/photo-1517701604599-bb29b565090c?auto=format&fit=crop&q=80&w=500', false),
-  ('d3', 'Fresh Lime Soda',       'Drinks',       90.00, 'Sparkling water with fresh lime juice.',               'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&q=80&w=500', false),
-  ('d4', 'Masala Chai',           'Drinks',       60.00, 'Spiced Indian tea brewed with milk.',                  'https://images.unsplash.com/photo-1561336313-0bd5e0b27ec8?auto=format&fit=crop&q=80&w=500', false)
+  ('s1', 'Paneer Tikka',          'Starters',    250.00, 'Grilled cottage cheese cubes marinated in spices.',    '/placeholder.svg', false),
+  ('s2', 'Chicken 65',            'Starters',    300.00, 'Spicy, deep-fried chicken bites.',                     '/placeholder.svg', false),
+  ('s3', 'Spring Rolls',          'Starters',    180.00, 'Crispy rolls stuffed with seasoned vegetables.',       '/placeholder.svg', false),
+  ('s4', 'Mushroom Salt & Pepper','Starters',    220.00, 'Crispy fried mushrooms tossed with salt and pepper.',  '/placeholder.svg', false),
+  ('m1', 'Butter Chicken',        'Main Course', 450.00, 'Tender chicken simmered in a creamy tomato gravy.',    '/placeholder.svg', false),
+  ('m2', 'Dal Makhani',           'Main Course', 350.00, 'Slow-cooked black lentils with butter and cream.',     '/placeholder.svg', false),
+  ('m3', 'Mutton Biryani',        'Main Course', 550.00, 'Aromatic basmati rice cooked with tender mutton.',     '/placeholder.svg', false),
+  ('m4', 'Palak Paneer',          'Main Course', 380.00, 'Cottage cheese in thick spinach gravy.',               '/placeholder.svg', false),
+  ('d1', 'Mango Lassi',           'Drinks',      120.00, 'Refreshing yogurt-based mango drink.',                 '/placeholder.svg', false),
+  ('d2', 'Cold Coffee',           'Drinks',      150.00, 'Chilled coffee blended with vanilla ice cream.',       '/placeholder.svg', false),
+  ('d3', 'Fresh Lime Soda',       'Drinks',       90.00, 'Sparkling water with fresh lime juice.',               '/placeholder.svg', false),
+  ('d4', 'Masala Chai',           'Drinks',       60.00, 'Spiced Indian tea brewed with milk.',                  '/placeholder.svg', false)
 on conflict (id) do nothing;

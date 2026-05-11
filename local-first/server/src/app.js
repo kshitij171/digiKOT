@@ -7,6 +7,7 @@ import { startMqttOutboxWorker } from './workers/mqttOutboxWorker.js';
 import { attachSocketIo } from './realtime/socketHub.js';
 import { healthRoutes } from './routes/health.js';
 import { deviceRoutes } from './routes/devices.js';
+import { staffRoutes } from './routes/staff.js';
 
 const env = loadEnv();
 const pool = getPool(env.databaseUrl);
@@ -31,6 +32,7 @@ fastify.setErrorHandler((err, request, reply) => {
 
 await fastify.register(healthRoutes, { prefix: '/api', pool, env });
 await fastify.register(deviceRoutes, { prefix: '/api', pool, env });
+await fastify.register(staffRoutes, { prefix: '/api', pool, env });
 
 await fastify.listen({ port: env.port, host: env.listenHost });
 

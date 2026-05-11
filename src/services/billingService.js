@@ -1,6 +1,10 @@
 import { billingRepository } from '../repositories/billingRepository';
 import { tableSessionRepository } from '../repositories/tableSessionRepository';
 import { auditService } from './auditService';
+import {
+  computeBillTotalsFromClearedKots,
+  applyDiscountPercent,
+} from '../lib/billing/billTotals';
 
 export const billingService = {
   async createBillForTable({
@@ -8,36 +12,63 @@ export const billingService = {
     waiterUserId,
     waiterUsername,
     clearedKots,
-    subtotal,
-    serviceCharge,
-    tax,
-    total,
+    serviceChargePct,
+    taxPct,
+    discountPercent = 0,
   }) {
     const session = await tableSessionRepository.getActiveByTable(tableNumber);
+
+    const {
+      subtotal,
+      serviceChargeAmount,
+      taxAmount,
+      grandTotalBeforeDiscount,
+    } = computeBillTotalsFromClearedKots(clearedKots, serviceChargePct, taxPct);
+
+    const pct = Number(discountPercent) || 0;
+    const { finalTotal } = applyDiscountPercent(grandTotalBeforeDiscount, pct);
+
     const billId = await billingRepository.createBill({
       session_id: session?.id || null,
       table_number: tableNumber,
       waiter_user_id: waiterUserId || null,
       waiter_username: waiterUsername || null,
       subtotal,
-      service_charge: serviceCharge,
-      tax,
-      total,
+      service_charge: serviceChargeAmount,
+      tax: taxAmount,
+      total: finalTotal,
+      discount_percent: pct > 0 ? pct : null,
+      discount_applied_by: pct > 0 ? (waiterUserId || null) : null,
+      discount_applied_at: pct > 0 ? new Date().toISOString() : null,
       printed: true,
       bill_status: 'printed',
     });
     await billingRepository.createBillItems(
       clearedKots.flatMap((kot) =>
-        (kot.items || []).map((item) => ({
-          bill_id: billId,
-          kot_item_id: `${kot._docId}:${item.itemId}`,
-          item_name: item.name,
-          qty: item.qty,
-          unit_price: item.price,
-          line_total: item.price * item.qty,
-          include_in_bill: item.status === 'done',
-          exclusion_reason: item.status === 'done' ? null : item.status,
-        }))
+        (kot.items || []).map((item) => {
+          // For partially removed items, bill the effective (post-removal) quantity.
+          // Fully removed items are excluded from the bill entirely.
+          const isPartial = item.status === 'partially_removed';
+          const isFullyRemoved = item.status === 'removed_entirely';
+          const effectiveQty = isPartial ? (item.finalQty ?? 0) : item.qty;
+          const includedInBill = item.status === 'done' || (isPartial && effectiveQty > 0);
+          const lineName =
+            item.itemName ??
+            item.name ??
+            item.item_name ??
+            item.itemNameSnapshot ??
+            'Unknown item';
+          return {
+            bill_id: billId,
+            kot_item_id: `${kot._docId}:${item.itemId}`,
+            item_name: lineName,
+            qty: effectiveQty,
+            unit_price: item.price,
+            line_total: item.price * effectiveQty,
+            include_in_bill: includedInBill,
+            exclusion_reason: isFullyRemoved ? 'removed_entirely' : (!includedInBill ? item.status : null),
+          };
+        })
       )
     );
     await auditService.log({
@@ -45,13 +76,21 @@ export const billingService = {
       action: 'create_bill',
       entity_type: 'bill',
       entity_id: billId,
-      after_json: { tableNumber, total, waiterUsername: waiterUsername || null },
+      after_json: { tableNumber, total: finalTotal, discountPercent: pct || null, waiterUsername: waiterUsername || null },
     });
     return billId;
   },
 
+  async getBillById(billId) {
+    return billingRepository.getBillById(billId);
+  },
+
   async listRecent(limit = 30) {
     return billingRepository.listRecent(limit);
+  },
+
+  async listBills({ fromDate, toDate, search } = {}) {
+    return billingRepository.listBills({ fromDate, toDate, search });
   },
 
   // ── Audit lifecycle ───────────────────────────────────────
@@ -103,7 +142,12 @@ export const billingService = {
       action: 'APPLY_DISCOUNT',
       entity_type: 'bill',
       entity_id: billId,
-      after_json: { discountPercent: pct, newTotal },
+      after_json: {
+        discountPercent: pct,
+        newTotal,
+        tableNumber: bill.table_number,
+        waiterUsername: bill.waiter_username || null,
+      },
     });
     return newTotal;
   },

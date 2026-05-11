@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
+  <rect width="400" height="300" fill="#f7f6f2"/>
+  <rect width="400" height="300" fill="url(#grain)" opacity="0.4"/>
+  <!-- Plate -->
+  <circle cx="200" cy="155" r="72" fill="#e8e5de" stroke="#d0cdc5" stroke-width="2"/>
+  <circle cx="200" cy="155" r="60" fill="#f0ede8"/>
+  <!-- Fork -->
+  <g transform="translate(144,105)" fill="none" stroke="#b0a898" stroke-width="2.5" stroke-linecap="round">
+    <line x1="0" y1="0" x2="0" y2="50"/>
+    <line x1="-5" y1="0" x2="-5" y2="22"/>
+    <line x1="5" y1="0" x2="5" y2="22"/>
+    <path d="M-5,22 Q0,28 5,22"/>
+  </g>
+  <!-- Knife -->
+  <g transform="translate(256,105)" fill="none" stroke="#b0a898" stroke-width="2.5" stroke-linecap="round">
+    <line x1="0" y1="0" x2="0" y2="50"/>
+    <path d="M0,0 Q8,12 0,24" fill="#d0cdc5" stroke="none"/>
+    <path d="M0,0 Q8,12 0,24" fill="none" stroke="#b0a898" stroke-width="1.5"/>
+  </g>
+  <!-- Food icon in plate -->
+  <circle cx="200" cy="150" r="18" fill="#c9a84c" opacity="0.25"/>
+  <circle cx="200" cy="150" r="10" fill="#c9a84c" opacity="0.4"/>
+  <!-- Label -->
+  <text x="200" y="252" text-anchor="middle" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" font-size="13" fill="#9b9b9b" letter-spacing="0.05em">No image available</text>
+</svg>

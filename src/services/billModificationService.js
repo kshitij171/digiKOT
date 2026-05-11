@@ -1,9 +1,36 @@
-import { billModificationRepository } from '../repositories/billModificationRepository';
+import { billModificationRepository, BillModRequestStatus } from '../repositories/billModificationRepository';
 import { billingRepository } from '../repositories/billingRepository';
+import { kotRepository } from '../repositories/kotRepository';
+import { userRepository } from '../repositories/userRepository';
 import { auditService } from './auditService';
 import { notificationService } from './notificationService';
 import { realtimeAdapter } from '../realtime/realtimeAdapter';
 import { createSubscriptionController } from './subscriptionController';
+
+/** Locate printed bill line for a waiter removal row (match menu item id + name). */
+function findBillLineForRemoval(billItems, itemToRemove) {
+  const wantId = itemToRemove.itemId;
+  const wantName = itemToRemove.itemName ?? itemToRemove.name;
+  return billItems.find((bi) => {
+    if (!bi.kot_item_id || typeof bi.kot_item_id !== 'string') return false;
+    const colon = bi.kot_item_id.indexOf(':');
+    const menuId = colon >= 0 ? bi.kot_item_id.slice(colon + 1) : '';
+    const nameOk = bi.item_name === wantName || (wantName && bi.item_name?.includes?.(wantName));
+    return menuId === wantId && nameOk;
+  });
+}
+
+function formatRemovalItemsSummary(itemsToRemove) {
+  const list = Array.isArray(itemsToRemove) ? itemsToRemove : [];
+  if (!list.length) return '—';
+  return list
+    .map((i) => {
+      const name = i.itemName ?? i.name ?? 'Item';
+      const q = Number(i.qty) || 0;
+      return `${name} × ${q}`;
+    })
+    .join(', ');
+}
 
 export const billModificationService = {
   async requestItemRemoval({ billId, waiterId, waiterUsername, tableNumber, itemsToRemove, reason }) {
@@ -38,53 +65,118 @@ export const billModificationService = {
     return billModificationRepository.listAll(limit);
   },
 
-  async approveRequest(requestId, managerUserId) {
+  /** Waiter summary: approved removals for attribution lines */
+  async listApprovedForTable(tableNumber) {
+    if (tableNumber == null || Number.isNaN(Number(tableNumber))) return [];
+    return billModificationRepository.listApprovedForTable(Number(tableNumber));
+  },
+
+  /**
+   * Manager approval — strict order:
+   * 1) Persist approval on request (await)
+   * 2) Apply KOT item qty/status + verify read-after-write
+   * 3) Void existing printed bill (preserve audit row)
+   * 4) Notify + audit log
+   */
+  async approveRequest(requestId, managerUserId, options = {}) {
+    const approvalNote = options.approvalNote != null && String(options.approvalNote).trim()
+      ? String(options.approvalNote).trim()
+      : null;
+
     const req = await billModificationRepository.getById(requestId);
     if (!req) throw new Error('Request not found.');
-    if (req.status !== 'pending') throw new Error('This request has already been actioned.');
-
-    const bill = await billingRepository.getBillById(req.bill_id);
-    if (!bill) throw new Error('Bill not found.');
-
-    const billItems = await billingRepository.getBillItems(req.bill_id);
-    const itemsToRemove = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
-
-    // Exclude matching bill_items (matched by item_name)
-    for (const itemToRemove of itemsToRemove) {
-      const matches = billItems.filter(
-        (bi) => bi.item_name === itemToRemove.itemName && bi.include_in_bill !== false
-      );
-      for (const bi of matches) {
-        await billingRepository.excludeBillItem(bi.id);
-      }
+    if (req.status !== BillModRequestStatus.PENDING) {
+      throw new Error('This request has already been actioned.');
     }
 
-    // Recalculate totals proportionally from remaining included items
-    const updatedItems = await billingRepository.getBillItems(req.bill_id);
-    const included = updatedItems.filter((bi) => bi.include_in_bill !== false);
-    const newSubtotal = included.reduce((sum, bi) => sum + Number(bi.line_total), 0);
-    const ratio = Number(bill.subtotal) > 0 ? newSubtotal / Number(bill.subtotal) : 0;
-    const newServiceCharge = Math.round(Number(bill.service_charge) * ratio * 100) / 100;
-    const newTax = Math.round(Number(bill.tax) * ratio * 100) / 100;
-    const newTotal = Math.round((newSubtotal + newServiceCharge + newTax) * 100) / 100;
+    let approvedByDisplayName = 'Manager';
+    try {
+      const manager = await userRepository.findById(managerUserId);
+      if (manager) {
+        approvedByDisplayName =
+          (manager.name && String(manager.name).trim()) ||
+          (manager.username ? `@${manager.username}` : '') ||
+          approvedByDisplayName;
+      }
+    } catch {
+      /* keep default */
+    }
 
-    await billingRepository.updateBillTotals(req.bill_id, {
-      subtotal: newSubtotal,
-      service_charge: newServiceCharge,
-      tax: newTax,
-      total: newTotal,
-    });
+    // ── STEP 1 — Mark request approved (must complete before KOT updates) ──
+    await billModificationRepository.markApproved(
+      requestId,
+      managerUserId,
+      approvedByDisplayName,
+      approvalNote
+    );
 
-    await billModificationRepository.updateStatus(requestId, 'approved', managerUserId, null);
+    const itemsToRemove = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
+    const billItems = await billingRepository.getBillItems(req.bill_id);
 
+    // ── STEP 2 — Update kot_items (SQL rows, not JSON documents) ──
+    for (const itemToRemove of itemsToRemove) {
+      const billItem = findBillLineForRemoval(billItems, itemToRemove);
+      if (!billItem?.kot_item_id) {
+        console.warn('[approveRemoval] No bill line match — skipping item', itemToRemove);
+        continue;
+      }
+      const colonIdx = billItem.kot_item_id.indexOf(':');
+      if (colonIdx === -1) continue;
+      const kotId = billItem.kot_item_id.slice(0, colonIdx);
+      const menuItemId = billItem.kot_item_id.slice(colonIdx + 1);
+      const removalQty = Number(itemToRemove.qty);
+      if (!Number.isFinite(removalQty) || removalQty <= 0) continue;
+
+      await kotRepository.applyPartialRemoval(kotId, menuItemId, removalQty);
+
+      const kotAfter = await kotRepository.getByIdWithItems(kotId);
+      const updatedItem = kotAfter?.items?.find((i) => i.menu_item_id === menuItemId);
+      console.log('[approveRemoval] KOT persisted', {
+        kotId,
+        menuItemId,
+        row: updatedItem
+          ? {
+              qty: updatedItem.qty,
+              status: updatedItem.status,
+              final_qty: updatedItem.final_qty,
+              removed_qty: updatedItem.removed_qty,
+            }
+          : null,
+      });
+    }
+
+    // ── STEP 3 — Void bill (do not delete): only issued bills ──
+    const VOIDABLE_STATUSES = new Set(['printed', 'generated']);
+    const bill = await billingRepository.getBillById(req.bill_id);
+    const st = String(bill?.bill_status || '').toLowerCase();
+    if (bill && VOIDABLE_STATUSES.has(st)) {
+      await billingRepository.voidBill(req.bill_id, {
+        voidedBy: managerUserId,
+        voidReason: 'manager_approved_removal',
+      });
+      console.log(
+        `[approveRemoval] Bill #${String(req.bill_id).slice(-6).toUpperCase()} voided due to removal approval`
+      );
+    }
+
+    // ── STEP 4 — Notify waiter (realtime also updates kot_items subscription) ──
     if (req.waiter_id) {
-      await notificationService.createNotification({
-        target_user_id: req.waiter_id,
-        table_number: req.table_number,
-        session_id: null,
-        event_type: 'bill_modification_approved',
-        payload_json: { billId: req.bill_id, requestId, newTotal },
-      }).catch(() => {});
+      try {
+        await notificationService.createNotification({
+          target_user_id: req.waiter_id,
+          table_number: req.table_number,
+          session_id: null,
+          event_type: 'bill_modification_approved',
+          payload_json: {
+            billId: req.bill_id,
+            requestId,
+            tableNumber: req.table_number,
+            itemsRemoved: itemsToRemove.length,
+          },
+        });
+      } catch (e) {
+        console.warn('[approveRemoval] notification failed:', e?.message || e);
+      }
     }
 
     await auditService.log({
@@ -92,38 +184,106 @@ export const billModificationService = {
       action: 'BILL_MODIFICATION_APPROVED',
       entity_type: 'bill_modification_request',
       entity_id: requestId,
-      after_json: { billId: req.bill_id, newTotal, itemsRemoved: itemsToRemove.length },
+      after_json: {
+        billId: req.bill_id,
+        itemsRemoved: itemsToRemove.length,
+        approvedByDisplayName,
+      },
     });
   },
 
   async rejectRequest(requestId, managerUserId, rejectionReason) {
-    const req = await billModificationRepository.getById(requestId);
-    if (!req) throw new Error('Request not found.');
-    if (req.status !== 'pending') throw new Error('This request has already been actioned.');
-
-    await billModificationRepository.updateStatus(
-      requestId,
-      'rejected',
-      managerUserId,
-      rejectionReason || null
-    );
-
-    if (req.waiter_id) {
-      await notificationService.createNotification({
-        target_user_id: req.waiter_id,
-        table_number: req.table_number,
-        session_id: null,
-        event_type: 'bill_modification_rejected',
-        payload_json: { billId: req.bill_id, requestId, rejectionReason: rejectionReason || null },
-      }).catch(() => {});
+    const trimmed = String(rejectionReason ?? '').trim();
+    if (!trimmed) {
+      throw new Error('A rejection reason is required.');
     }
 
+    const req = await billModificationRepository.getById(requestId);
+    if (!req) throw new Error('Request not found.');
+    if (req.status !== BillModRequestStatus.PENDING) throw new Error('This request has already been actioned.');
+
+    let rejectedByDisplayName = 'Manager';
+    try {
+      const manager = await userRepository.findById(managerUserId);
+      if (manager) {
+        rejectedByDisplayName =
+          (manager.name && String(manager.name).trim()) ||
+          (manager.username ? `@${manager.username}` : '') ||
+          rejectedByDisplayName;
+      }
+    } catch {
+      /* keep default */
+    }
+
+    console.log('REJECTION PAYLOAD:', {
+      requestId,
+      reason: trimmed,
+      rejectedBy: rejectedByDisplayName,
+      rejectedById: managerUserId,
+    });
+
+    await billModificationRepository.markRejected(requestId, managerUserId, rejectedByDisplayName, trimmed);
+
+    if (req.waiter_id) {
+      try {
+        await notificationService.createNotification({
+          target_user_id: req.waiter_id,
+          table_number: req.table_number,
+          session_id: null,
+          event_type: 'bill_modification_rejected',
+          payload_json: {
+            billId: req.bill_id,
+            requestId,
+            rejectionReason: trimmed,
+            rejectedByDisplayName,
+          },
+        });
+      } catch (e) {
+        console.warn('[rejectRemoval] notification failed:', e?.message || e);
+      }
+    }
+
+    const reviewedAtIso = new Date().toISOString();
     await auditService.log({
       actor_user_id: managerUserId,
       action: 'BILL_MODIFICATION_REJECTED',
       entity_type: 'bill_modification_request',
       entity_id: requestId,
-      remarks: rejectionReason || null,
+      remarks: trimmed,
+      after_json: {
+        billId: req.bill_id,
+        tableNumber: req.table_number,
+        rejectionReason: trimmed,
+        rejectedByDisplayName,
+        rejectedById: managerUserId,
+        reviewedAtIso,
+        itemsToRemove: req.items_to_remove,
+        itemsSummary: formatRemovalItemsSummary(req.items_to_remove),
+      },
+    });
+  },
+
+  subscribeRemovalRequestsForWaiterTable(tableNumber, waiterUserId, onData) {
+    const load = async () => {
+      if (waiterUserId == null) {
+        onData([]);
+        return;
+      }
+      const rows = await billModificationRepository.listRecentForTableWaiter(tableNumber, waiterUserId, 40);
+      onData(rows || []);
+    };
+    return createSubscriptionController({
+      load,
+      subscribeFns: [
+        (onEvent, onStatus) =>
+          realtimeAdapter.subscribe({
+            channelName: `bill-mod-waiter-${tableNumber}`,
+            table: 'bill_modification_requests',
+            filter: `table_number=eq.${tableNumber}`,
+            onEvent,
+            onStatus,
+          }),
+      ],
     });
   },
 

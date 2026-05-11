@@ -1,5 +1,5 @@
 // src/components/WaiterApp.jsx
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { tableService } from '../services/tableService';
@@ -9,6 +9,10 @@ import { cancelService } from '../services/cancelService';
 import { billingService } from '../services/billingService';
 import { billModificationService } from '../services/billModificationService';
 import './WaiterApp.css';
+import {
+  computeBillTotalsFromClearedKots,
+  combinedConsumedItemsFromClearedKots,
+} from '../lib/billing/billTotals';
 
 // ── Category display order (matches seed) ─────────────────
 const CATEGORY_ORDER = [
@@ -124,10 +128,15 @@ function OrderPage() {
   }, [categories, activeCategory]);
 
   const filteredMenu = useMemo(() => {
-    return menuItems.filter(item =>
-      item.category === activeCategory &&
-      (!searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    if (searchQuery) {
+      // When searching, always look across the entire menu regardless of selected category.
+      const q = searchQuery.toLowerCase();
+      return menuItems.filter(item =>
+        item.name.toLowerCase().includes(q) ||
+        (item.description && item.description.toLowerCase().includes(q))
+      );
+    }
+    return menuItems.filter(item => item.category === activeCategory);
   }, [menuItems, activeCategory, searchQuery]);
 
   // ── KOTs & billing data ───────────────────────────────────
@@ -137,6 +146,8 @@ function OrderPage() {
   const [serviceChargePct, setServiceChargePct] = useState(5);
   const [taxPct, setTaxPct] = useState(18);
   const [showSummary, setShowSummary] = useState(false);
+  const [approvedRemovalRequests, setApprovedRemovalRequests] = useState([]);
+  const [billModRequests, setBillModRequests] = useState([]);
 
   useEffect(() => {
     return kotService.subscribeByTable(parseInt(id), ({ clearedKots: nc, openKots: no }) => {
@@ -149,20 +160,65 @@ function OrderPage() {
     return cancelService.subscribeByTable(parseInt(id), setCancellationRequests);
   }, [id]);
 
-  let consumedSubtotal = 0;
-  const combinedConsumedItems = [];
-  clearedKots.forEach(kot => {
-    kot.items?.forEach(item => {
-      if (item.status === 'done') {
-        consumedSubtotal += item.price * item.qty;
-        combinedConsumedItems.push(item);
+  useEffect(() => {
+    const uid = currentUser?.id;
+    const tableNum = parseInt(id, 10);
+    if (!uid || Number.isNaN(tableNum)) return undefined;
+    return billModificationService.subscribeRemovalRequestsForWaiterTable(tableNum, uid, setBillModRequests);
+  }, [id, currentUser?.id]);
+
+  const pendingBillRemovalRequest = useMemo(
+    () => billModRequests.some((r) => r.status === 'pending'),
+    [billModRequests]
+  );
+
+  /** While View Summary is open: poll KOTs + approved removals (~4s) so totals refresh after manager approval. */
+  useEffect(() => {
+    if (!showSummary) return undefined;
+    const tableNum = parseInt(id, 10);
+    if (Number.isNaN(tableNum)) return undefined;
+    let cancelled = false;
+
+    const refresh = async () => {
+      try {
+        const [all, approvals] = await Promise.all([
+          kotService.listByTable(tableNum),
+          billModificationService.listApprovedForTable(tableNum),
+        ]);
+        if (cancelled) return;
+        setClearedKots(all.filter((k) => k.kotStatus === 'cleared'));
+        setOpenKots(all.filter((k) => k.kotStatus === 'open'));
+        setApprovedRemovalRequests(approvals || []);
+
+        setLastBillId((prev) => {
+          if (!prev) return prev;
+          billingService.getBillById(prev).then((b) => {
+            if (cancelled) return;
+            if (!b || b.bill_status === 'void') setLastBillId(null);
+          });
+          return prev;
+        });
+      } catch (e) {
+        console.warn('[summary refresh]', e?.message || e);
       }
-    });
-  });
-  const serviceChargeAmt = (consumedSubtotal * serviceChargePct) / 100;
-  const taxAmt            = (consumedSubtotal * taxPct) / 100;
-  const grandTotal        = consumedSubtotal + serviceChargeAmt + taxAmt;
-  const hasConsumed       = combinedConsumedItems.length > 0;
+    };
+
+    refresh();
+    const t = setInterval(refresh, 4000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [showSummary, id]);
+
+  const {
+    subtotal: consumedSubtotal,
+    serviceChargeAmount: serviceChargeAmt,
+    taxAmount: taxAmt,
+    grandTotalBeforeDiscount: grandTotal,
+  } = computeBillTotalsFromClearedKots(clearedKots, serviceChargePct, taxPct);
+  const combinedConsumedItems = combinedConsumedItemsFromClearedKots(clearedKots);
+  const hasConsumed = consumedSubtotal > 0;
 
   // ── Cart (localStorage-backed) ────────────────────────────
   const CART_KEY = `cart_table_${id}`;
@@ -185,11 +241,32 @@ function OrderPage() {
   const [removalSubmitting, setRemovalSubmitting] = useState(false);
   const [removalMessage, setRemovalMessage] = useState('');
 
+  // ── Discount state ────────────────────────────────────────
+  const [discountPct, setDiscountPct] = useState(0);
+
+  // ── Cancel rejection/approval toast tracker ───────────────
+  const prevCancelReqsRef = useRef([]);
+
   useEffect(() => {
     try {
       localStorage.setItem(CART_KEY, JSON.stringify(cartItems.map(({ isChecked, ...r }) => r)));
     } catch { /* ignore */ }
   }, [cartItems, CART_KEY]);
+
+  // ── Toast notifications for cancel approve / reject ───────
+  useEffect(() => {
+    const prev = prevCancelReqsRef.current;
+    cancellationRequests.forEach(r => {
+      const wasPending = prev.some(p => p.id === r.id && p.status === 'pending_approval');
+      if (wasPending && r.status === 'rejected') {
+        showToast(`Kitchen rejected cancellation of "${r.itemName}". It will be included in the bill.`);
+      }
+      if (wasPending && r.status === 'approved') {
+        showToast(`Kitchen approved cancellation of "${r.itemName}". It has been removed from the bill.`);
+      }
+    });
+    prevCancelReqsRef.current = cancellationRequests;
+  }, [cancellationRequests]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cart actions ──────────────────────────────────────────
   const addToCart = item => {
@@ -222,6 +299,20 @@ function OrderPage() {
     setTimeout(() => setToast(''), 3000);
   };
 
+  const partialRemovalCaption = (item) => {
+    if (item.status !== 'partially_removed') return null;
+    const rq = Number(item.removedQty) || 0;
+    const match = approvedRemovalRequests
+      .filter(
+        (a) =>
+          Array.isArray(a.items_to_remove) &&
+          a.items_to_remove.some((it) => it.itemId === item.itemId)
+      )
+      .sort((a, b) => new Date(b.reviewed_at || 0) - new Date(a.reviewed_at || 0))[0];
+    const mgr = match?.approved_by_display_name?.trim() || 'manager';
+    return `↳ ${rq} removed — approved by ${mgr}`;
+  };
+
   // ── KOT submission ────────────────────────────────────────
   const submitKOT = async () => {
     if (checkedItems.length === 0) return;
@@ -247,29 +338,88 @@ function OrderPage() {
   };
 
   // ── Print bill ────────────────────────────────────────────
-  const handlePrint = async () => {
-    if (!hasConsumed) return;
-    let billId = null;
+  const RESOLVED_STATUSES = ['done', 'removed', 'out_of_stock', 'cancelled'];
+
+  /** Returns null on success, or an error string if blocked. */
+  const ensureBillExists = async () => {
+    if (lastBillId) {
+      // The bill may have been voided by a manager approval — re-check before reusing.
+      try {
+        const existing = await billingService.getBillById(lastBillId);
+        if (!existing || existing.bill_status === 'void') {
+          setLastBillId(null);
+          // Fall through to create a fresh bill
+        } else {
+          return null; // Bill is still valid, reuse it
+        }
+      } catch {
+        setLastBillId(null);
+      }
+    }
+
+    const pendingKot = openKots.find(kot =>
+      kot.items?.some(item => !RESOLVED_STATUSES.includes(item.status))
+    );
+    if (pendingKot) {
+      const shortKotId = (pendingKot.id || '').slice(-4).toUpperCase();
+      return `KOT #${shortKotId} is still being prepared. Wait for the kitchen to mark all items as done.`;
+    }
+
     try {
-      billId = await billingService.createBillForTable({
+      const billId = await billingService.createBillForTable({
         tableNumber: parseInt(id),
         waiterUserId: currentUser?.id || null,
         waiterUsername: currentUser?.username || null,
-        clearedKots, subtotal: consumedSubtotal,
-        serviceCharge: serviceChargeAmt, tax: taxAmt, total: grandTotal,
+        clearedKots,
+        serviceChargePct,
+        taxPct,
+        discountPercent: discountPct,
       });
       setLastBillId(billId);
-      setRemovalSelections(combinedConsumedItems.map((item, idx) => ({ ...item, _key: idx, selected: false })));
-      setRemovalReason('');
-      setRemovalMessage('');
+      return null;
     } catch (err) {
       console.error('Bill error:', err);
+      return 'Failed to generate bill. Please try again.';
     }
+  };
+
+  const handlePrint = async () => {
+    if (!hasConsumed) return;
+    const err = await ensureBillExists();
+    if (err) { alert(err); return; }
     window.print();
   };
 
   // ── Removal request ───────────────────────────────────────
-  const openRemovalModal = () => { setRemovalMessage(''); setShowRemovalModal(true); };
+
+  /**
+   * Build the expanded selection list: each consumed item is split into
+   * individual unit rows (qty × 1) so the waiter can remove partial quantities.
+   */
+  const buildRemovalSelections = () =>
+    // Only expand items still fully `done` — partially/fully removed ones
+    // can't be removed again.
+    combinedConsumedItems
+      .filter(item => item.status === 'done')
+      .flatMap((item) =>
+        Array.from({ length: item.qty }, (_, u) => ({
+          ...item,
+          qty: 1,
+          _key: `${item.itemId}_${u}`,
+          selected: false,
+        }))
+      );
+
+  const openRemovalModal = async () => {
+    if (!hasConsumed) return;
+    const err = await ensureBillExists();
+    if (err) { alert(err); return; }
+    setRemovalSelections(buildRemovalSelections());
+    setRemovalReason('');
+    setRemovalMessage('');
+    setShowRemovalModal(true);
+  };
+
   const toggleRemovalItem = key =>
     setRemovalSelections(prev => prev.map(i => i._key === key ? { ...i, selected: !i.selected } : i));
 
@@ -277,6 +427,15 @@ function OrderPage() {
     const selected = removalSelections.filter(i => i.selected);
     if (selected.length === 0) { setRemovalMessage('Select at least one item.'); return; }
     if (!removalReason.trim()) { setRemovalMessage('A reason is required.'); return; }
+
+    // Re-group individual unit rows back into {itemId, itemName, qty} entries.
+    const byItem = {};
+    selected.forEach(({ itemId, name }) => {
+      if (!byItem[itemId]) byItem[itemId] = { itemId, itemName: name, qty: 0 };
+      byItem[itemId].qty += 1;
+    });
+    const itemsToRemove = Object.values(byItem);
+
     setRemovalSubmitting(true);
     try {
       await billModificationService.requestItemRemoval({
@@ -284,7 +443,7 @@ function OrderPage() {
         waiterId: currentUser?.id || null,
         waiterUsername: currentUser?.username || null,
         tableNumber: id ? parseInt(id, 10) : null,
-        itemsToRemove: selected.map(({ itemId, name, qty }) => ({ itemId, itemName: name, qty })),
+        itemsToRemove,
         reason: removalReason.trim(),
       });
       setRemovalMessage('Request sent to manager.');
@@ -317,7 +476,12 @@ function OrderPage() {
 
   // ── Clear table ───────────────────────────────────────────
   const handleClearTable = async () => {
-    const ok = window.confirm(`Clear Table ${id}? This cannot be undone.`);
+    // Block if active KOTs exist.
+    if (openKots.length > 0) {
+      alert('Table cannot be cleared. There is an active KOT or unpaid bill. Please wait for the kitchen to complete all orders.');
+      return;
+    }
+    const ok = window.confirm(`Clear Table ${id}? This will end the session and cannot be undone.`);
     if (!ok) return;
     try {
       await kotService.clearTable(parseInt(id), currentUser?.id || null);
@@ -384,18 +548,7 @@ function OrderPage() {
               ← Tables
             </button>
 
-            <div className="order-topbar-cat">{activeCategory}</div>
-
-            <div className="order-search-wrap">
-              <span className="order-search-icon">🔍</span>
-              <input
-                type="text"
-                className="order-search"
-                placeholder="Search menu…"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-              />
-            </div>
+            <div className="order-topbar-cat">{searchQuery ? `Search results` : activeCategory}</div>
 
             <div className="order-topbar-spacer" />
 
@@ -409,10 +562,15 @@ function OrderPage() {
               <span className="kot-badge">{cartQty}</span>
             </button>
 
-            {lastBillId && (
+            {hasConsumed && !pendingBillRemovalRequest && (
               <button className="topbar-action-btn warn" onClick={openRemovalModal}>
                 Request Removal
               </button>
+            )}
+            {hasConsumed && pendingBillRemovalRequest && (
+              <span className="topbar-pending-removal" title="Wait for manager decision">
+                Removal pending…
+              </span>
             )}
 
             <button
@@ -439,6 +597,18 @@ function OrderPage() {
             </button>
           </div>
 
+          {/* Full-width search bar — sits between topbar and menu grid */}
+          <div className="menu-search-bar">
+            <span className="menu-search-icon">🔍</span>
+            <input
+              type="text"
+              className="menu-search-input"
+              placeholder="Search menu…"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+
           {/* Menu Grid */}
           <div className="menu-content">
             <div className="menu-grid">
@@ -461,7 +631,7 @@ function OrderPage() {
                           alt={item.name}
                           className="menu-img"
                           loading="lazy"
-                          onError={e => { e.target.src = 'https://images.unsplash.com/photo-1546793665-c74683f339c1?auto=format&fit=crop&w=400&h=300&q=60'; }}
+                          onError={e => { e.target.src = '/placeholder.svg'; }}
                         />
                         {isOOS && <span className="menu-oos-badge">Out of Stock</span>}
                         {inCart > 0 && !isOOS && (
@@ -473,6 +643,9 @@ function OrderPage() {
                           <span className={`veg-dot ${item.isVegetarian ? 'veg' : 'nonveg'}`} title={item.isVegetarian ? 'Vegetarian' : 'Non-Vegetarian'} />
                           <span className="menu-card-name">{item.name}</span>
                         </div>
+                        {searchQuery && (
+                          <div className="menu-card-category-tag">{item.category}</div>
+                        )}
                         {item.description && (
                           <div className="menu-card-desc">{item.description}</div>
                         )}
@@ -585,7 +758,7 @@ function OrderPage() {
                           const isResolved  = ['done', 'removed', 'out_of_stock'].includes(item.status);
                           const isPending   = item.status === 'pending';
                           const hasCancelReq = cancellationRequests.some(r =>
-                            r.originalKotId === kot._docId && r.itemId === item.itemId
+                            r.originalKotId === kot._docId && r.itemId === item.itemId && r.status === 'pending_approval'
                           );
                           return (
                             <div key={i} className={`log-item-row ${isResolved ? 'resolved-row' : ''}`}>
@@ -614,6 +787,26 @@ function OrderPage() {
                 )}
               </div>
 
+              {(billModRequests.some((r) => r.status === 'rejected') ||
+                billModRequests.some((r) => r.status === 'pending')) && (
+                <div className="summary-section">
+                  <h4 className="summary-section-title">Bill removal</h4>
+                  {billModRequests.some((r) => r.status === 'pending') && (
+                    <div className="bill-mod-pending-banner">Awaiting manager decision on your removal request…</div>
+                  )}
+                  {billModRequests
+                    .filter((r) => r.status === 'rejected')
+                    .map((r) => (
+                      <div key={r.id} className="bill-mod-reject-banner">
+                        <div className="bill-mod-reject-main">
+                          ↳ Rejected — {r.rejection_reason?.trim() || 'No reason provided'}
+                        </div>
+                        <div className="bill-mod-reject-hint">(You may submit a new removal request)</div>
+                      </div>
+                    ))}
+                </div>
+              )}
+
               <div className="summary-section">
                 <h4 className="summary-section-title">Consumed</h4>
                 {clearedKots.length === 0 ? (
@@ -621,19 +814,45 @@ function OrderPage() {
                 ) : (
                   <div className="kot-log">
                     {clearedKots.map((kot, idx) => {
-                      const doneItems = kot.items?.filter(i => i.status === 'done') || [];
-                      if (doneItems.length === 0) return null;
+                      const displayItems = kot.items?.filter(i =>
+                        ['done', 'partially_removed', 'removed_entirely'].includes(i.status)
+                      ) || [];
+                      if (displayItems.length === 0) return null;
                       return (
                         <div key={idx} className="log-kot-card">
                           <div className="log-kot-label">KOT #{(kot._docId || '').slice(-4).toUpperCase()}</div>
-                          {doneItems.map((item, i) => (
-                            <div key={i} className="log-item-row">
-                              <div className="log-item-info">
-                                <span>{item.name} <span className="log-qty">×{item.qty}</span></span>
-                                <span className="log-price">₹{item.price * item.qty}</span>
+                          {displayItems.map((item, i) => {
+                            const isPartial  = item.status === 'partially_removed';
+                            const isRemoved  = item.status === 'removed_entirely';
+                            const effQty     = isPartial ? (item.finalQty ?? 0) : item.qty;
+                            const displayQty = isRemoved ? item.qty : isPartial ? effQty : item.qty;
+                            const note       = partialRemovalCaption(item);
+                            return (
+                              <div key={i} className={`log-item-row${isRemoved ? ' removed-entirely-row' : ''}`}>
+                                <div className="log-item-info log-item-info--stack">
+                                  <div>
+                                    <span className={isRemoved ? 'log-item-struck' : ''}>
+                                      {item.name}{' '}
+                                      <span className="log-qty">
+                                        ×{displayQty}
+                                      </span>
+                                    </span>
+                                    {isPartial && note && (
+                                      <div className="log-approval-note">{note}</div>
+                                    )}
+                                  </div>
+                                </div>
+                                {isRemoved ? (
+                                  <>
+                                    <span className="log-removed-badge">Removed</span>
+                                    <span className="log-price log-price-zero">₹0.00</span>
+                                  </>
+                                ) : (
+                                  <span className="log-price">₹{item.price * effQty}</span>
+                                )}
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                           {kot.specialInstructions && (
                             <div className="log-note">📝 {kot.specialInstructions}</div>
                           )}
@@ -666,8 +885,27 @@ function OrderPage() {
                     <span>% → ₹{taxAmt.toFixed(2)}</span>
                   </div>
                 </div>
+                <div className="billing-row">
+                  <span>Discount</span>
+                  <div className="billing-input-group">
+                    <input
+                      type="number"
+                      value={discountPct}
+                      min="0"
+                      max="100"
+                      onChange={e => setDiscountPct(Math.min(100, Math.max(0, Number(e.target.value))))}
+                    />
+                    <span>% → −₹{(grandTotal * discountPct / 100).toFixed(2)}</span>
+                  </div>
+                </div>
+                {discountPct > 50 && (
+                  <div className="billing-discount-warning">
+                    Discount above 50% — this will be flagged in the manager's audit feed.
+                  </div>
+                )}
                 <div className="billing-row grand-total-row">
-                  <span>Grand Total</span><span>₹{grandTotal.toFixed(2)}</span>
+                  <span>Grand Total</span>
+                  <span>₹{(grandTotal * (1 - discountPct / 100)).toFixed(2)}</span>
                 </div>
               </div>
             )}
@@ -698,8 +936,8 @@ function OrderPage() {
                     onChange={() => toggleRemovalItem(item._key)}
                     style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
                   />
-                  <span style={{ flex: 1, fontSize: '0.85rem' }}>{item.name} ×{item.qty}</span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price * item.qty}</span>
+                  <span style={{ flex: 1, fontSize: '0.85rem' }}>{item.name} ×1</span>
+                  <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
                 </label>
               ))}
               <div style={{ marginTop: '1rem' }}>
@@ -740,6 +978,7 @@ function OrderPage() {
       )}
 
       {/* ══ Print Receipt ══ */}
+      {/* Customer-facing print: billable items only (see AuditBillDetailPanel for manager audit view). */}
       <div className="print-receipt-container">
         <div className="rcpt-header">
           <h2>OPULENCE Restaurant</h2>
@@ -763,7 +1002,10 @@ function OrderPage() {
           <div className="rcpt-totals-row"><span>Subtotal:</span><span>₹{consumedSubtotal.toFixed(2)}</span></div>
           <div className="rcpt-totals-row"><span>Service ({serviceChargePct}%):</span><span>₹{serviceChargeAmt.toFixed(2)}</span></div>
           <div className="rcpt-totals-row"><span>GST ({taxPct}%):</span><span>₹{taxAmt.toFixed(2)}</span></div>
-          <div className="rcpt-totals-row bold"><span>Grand Total:</span><span>₹{grandTotal.toFixed(2)}</span></div>
+          {discountPct > 0 && (
+            <div className="rcpt-totals-row"><span>Discount ({discountPct}%):</span><span>−₹{(grandTotal * discountPct / 100).toFixed(2)}</span></div>
+          )}
+          <div className="rcpt-totals-row bold"><span>Grand Total:</span><span>₹{(grandTotal * (1 - discountPct / 100)).toFixed(2)}</span></div>
         </div>
         <div className="rcpt-footer">Thank you for dining with us!</div>
       </div>

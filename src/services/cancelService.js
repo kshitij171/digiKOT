@@ -1,6 +1,8 @@
 import { cancelRepository } from '../repositories/cancelRepository';
 import { realtimeAdapter } from '../realtime/realtimeAdapter';
 import { kotRepository } from '../repositories/kotRepository';
+import { userRepository } from '../repositories/userRepository';
+import { kotActionsRepository } from '../repositories/kotActionsRepository';
 import { notificationService } from './notificationService';
 import { auditService } from './auditService';
 import { createSubscriptionController } from './subscriptionController';
@@ -92,7 +94,17 @@ export const cancelService = {
     });
   },
 
-  async reviewCancel({ request, reviewerUserId, approve }) {
+  async reviewCancel({ request, reviewerUserId, approve, supervisorId, supervisorName }) {
+    // First-touch ownership: tag the KOT before any other update
+    if (supervisorId && request.originalKotId) {
+      const kot = await kotRepository.getById(request.originalKotId).catch(() => null);
+      if (kot && !kot.supervisor_id) {
+        await kotRepository.assignSupervisor(request.originalKotId, supervisorId, supervisorName || null).catch((e) =>
+          console.warn('assignSupervisor failed:', e)
+        );
+      }
+    }
+
     await cancelRepository.updateStatus(request.id, approve ? 'approved' : 'rejected', reviewerUserId);
     if (approve) {
       await kotRepository.updateItemStatus(request.originalKotId, request.itemId, 'cancelled');
@@ -101,15 +113,48 @@ export const cancelService = {
           target_user_id: request.waiterUserId,
           table_number: request.tableNumber,
           event_type: 'cancel_approved',
-          payload_json: { itemName: request.itemName },
+          payload_json: { itemName: request.itemName, kotId: request.originalKotId },
+        });
+      }
+    } else {
+      // Rejection: item remains in its active state. Notify the waiter.
+      if (request.waiterUserId) {
+        await notificationService.createNotification({
+          target_user_id: request.waiterUserId,
+          table_number: request.tableNumber,
+          event_type: 'cancel_rejected',
+          payload_json: { itemName: request.itemName, kotId: request.originalKotId },
         });
       }
     }
+
+    // Log to kot_actions for full auditability
+    await kotActionsRepository.logAction({
+      kotId: request.originalKotId,
+      action: approve ? 'cancel_approved' : 'cancel_rejected',
+      performedByWaiterId: reviewerUserId,
+    }).catch(() => {});
+
+    let waiterUsername = null;
+    if (request.waiterUserId) {
+      const w = await userRepository.findById(request.waiterUserId).catch(() => null);
+      waiterUsername = w?.username || null;
+    }
+
     await auditService.log({
       actor_user_id: reviewerUserId,
       action: approve ? 'approve_cancel' : 'reject_cancel',
       entity_type: 'cancel_request',
       entity_id: request.id,
+      after_json: {
+        kotId: request.originalKotId,
+        tableNumber: request.tableNumber,
+        waiterUserId: request.waiterUserId || null,
+        waiterUsername,
+        itemName: request.itemName,
+        qty: request.qty,
+        decision: approve ? 'approved' : 'rejected',
+      },
     });
   },
 };

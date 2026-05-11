@@ -9,40 +9,49 @@ import PagerRegisterPage from './components/PagerRegisterPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
 
-// Manager has its own full-page layout, topbar, and logout button — no outer shell needed.
-// Waiter and kitchen keep the outer shell because kitchen has no built-in logout button.
-const SELF_CONTAINED_ROLES = ['manager'];
+// Each role maps to exactly one home route prefix.
+const ROLE_HOME = {
+  waiter: '/waiter',
+  kitchen_supervisor: '/kitchen',
+  manager: '/manager',
+};
 
-const ProtectedRoute = () => {
+// Roles whose components provide their own full-page layout (no outer shell).
+const SELF_CONTAINED_ROLES = ['manager', 'waiter'];
+
+/**
+ * ProtectedRoute — guards a route group by login state AND, optionally, by role.
+ * If the user is not logged in → redirect to /login.
+ * If the user's role does not match `requiredRole` → redirect to their actual home.
+ */
+const ProtectedRoute = ({ requiredRole } = {}) => {
   const { currentUser, role, logoutUser } = useAuth();
   const location = useLocation();
 
-  if (!currentUser) return <Navigate to="/login" />;
+  if (!currentUser) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
 
-  // Manager has its own full-page shell with topbar + logout — render without outer wrapper.
+  if (requiredRole && role !== requiredRole) {
+    const correctHome = ROLE_HOME[role] || '/login';
+    return <Navigate to={correctHome} replace />;
+  }
+
   if (SELF_CONTAINED_ROLES.includes(role)) {
     return <Outlet />;
   }
 
-  // Fallback shell for any other protected routes (e.g. /notifications)
-  let screenName = "Dashboard";
-  if (location.pathname.includes("notifications")) screenName = "Notifications";
-  if (location.pathname.includes("pager-register")) screenName = "Pager setup";
-
+  // Minimal outer shell for kitchen_supervisor and other non-self-contained roles (e.g. /notifications).
   return (
     <div className="app-container">
       <nav className="glass-nav">
-        <h1 className="brand-logo">
-          KOT System
-          <span style={{ fontSize: '1rem', marginLeft: '12px', color: '#cbd5e1', fontWeight: 'normal' }}>
-            | {screenName}
-          </span>
-        </h1>
+        <h1 className="brand-logo">OPULENCE</h1>
         <div className="nav-links">
           <button
             className="nav-link"
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '1rem', fontWeight: 500, color: '#ef4444' }}
-            onClick={logoutUser}>
+            onClick={logoutUser}
+          >
             Logout
           </button>
         </div>
@@ -60,15 +69,26 @@ function AppRoutes() {
 
   return (
     <Routes>
-      <Route path="/login" element={!currentUser ? <LoginScreen /> : <Navigate to={homeRoute} />} />
+      <Route path="/login" element={!currentUser ? <LoginScreen /> : <Navigate to={homeRoute} replace />} />
 
-      <Route element={<ProtectedRoute />}>
+      {/* Role-isolated route groups — wrong role is redirected to their own home */}
+      <Route element={<ProtectedRoute requiredRole="waiter" />}>
         <Route path="/waiter/*" element={<WaiterApp />} />
+      </Route>
+
+      <Route element={<ProtectedRoute requiredRole="kitchen_supervisor" />}>
         <Route path="/kitchen" element={<KitchenApp />} />
+      </Route>
+
+      <Route element={<ProtectedRoute requiredRole="manager" />}>
         <Route path="/manager" element={<ManagerApp />} />
         <Route path="/pager-register" element={<PagerRegisterPage />} />
+      </Route>
+
+      {/* Shared / index routes — any authenticated user */}
+      <Route element={<ProtectedRoute />}>
         <Route path="/notifications" element={<NotificationCenter />} />
-        <Route path="/" element={<Navigate to={homeRoute} />} />
+        <Route path="/" element={<Navigate to={homeRoute} replace />} />
       </Route>
     </Routes>
   );

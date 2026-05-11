@@ -2,9 +2,11 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { auditService } from '../services/auditService';
 import { managerService } from '../services/managerService';
 import { billingService } from '../services/billingService';
-import { kotService } from '../services/kotService';
 import { billModificationService } from '../services/billModificationService';
 import { menuService } from '../services/menuService';
+import AuditFeedTab from './AuditFeedTab';
+import AuditBillDetailPanel from './AuditBillDetailPanel';
+import { buildAuditBillDetail } from '../services/auditBillDetailService';
 import { useAuth } from '../context/AuthContext';
 import { validatePin } from '../lib/utils/auth';
 import './ManagerApp.css';
@@ -21,276 +23,6 @@ function shortId(id) { return id ? '#' + String(id).slice(-6).toUpperCase() : '�
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function toFrom(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').toISOString() : null; }
 function toTo(dateStr) { return dateStr ? new Date(dateStr + 'T23:59:59').toISOString() : null; }
-
-// ── DateFilter ────────────────────────────────────────────
-function DateFilter({ value, onChange }) {
-  return (
-    <div className="audit-card-controls" onClick={(e) => e.stopPropagation()}>
-      <input
-        type="date"
-        className="audit-date-input"
-        value={value.from}
-        onChange={(e) => onChange({ ...value, from: e.target.value })}
-      />
-      <span className="audit-date-sep">→</span>
-      <input
-        type="date"
-        className="audit-date-input"
-        value={value.to}
-        onChange={(e) => onChange({ ...value, to: e.target.value })}
-      />
-    </div>
-  );
-}
-
-// ── AuditSection ──────────────────────────────────────────
-function AuditSection({ icon, title, description, loadData, renderRows }) {
-  const today = todayStr();
-  const [open, setOpen] = useState(false);
-  const [dates, setDates] = useState({ from: today, to: today });
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await loadData({ fromDate: toFrom(dates.from), toDate: toTo(dates.to) });
-      setRows(data || []);
-    } catch (e) {
-      setError(e.message || 'Failed to load data.');
-    } finally {
-      setLoading(false);
-    }
-  }, [dates.from, dates.to, loadData]);
-
-  useEffect(() => {
-    if (open) load();
-  }, [open, load]);
-
-  const handleDatesChange = (next) => {
-    setDates(next);
-  };
-
-  return (
-    <div className="audit-card">
-      <div className="audit-card-header" onClick={() => setOpen((o) => !o)}>
-        <div className="audit-card-icon">{icon}</div>
-        <div className="audit-card-meta">
-          <div className="audit-card-title">{title}</div>
-          <div className="audit-card-desc">{description}</div>
-        </div>
-        <DateFilter value={dates} onChange={handleDatesChange} />
-        <span className="audit-card-chevron">{open ? '▲' : '▼'}</span>
-      </div>
-      {open && (
-        <div className="audit-card-body">
-          {loading ? (
-            <p className="audit-empty">Loading…</p>
-          ) : error ? (
-            <p className="audit-error">{error}</p>
-          ) : rows.length === 0 ? (
-            <p className="audit-empty">No records for this date range.</p>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table className="audit-table">{renderRows(rows)}</table>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ── AUDIT TAB ─────────────────────────────────────────────
-function AuditTab() {
-  return (
-    <div>
-      <p className="mgr-section-h">Click a section to expand and filter by date</p>
-
-      {/* 1. Void Bills */}
-      <AuditSection
-        icon="🚫"
-        title="1. Void Bills"
-        description="Bills cancelled after printing by management."
-        loadData={billingService.listVoidBills.bind(billingService)}
-        renderRows={(rows) => (
-          <>
-            <thead>
-              <tr>
-                <th>Bill</th>
-                <th>Table</th>
-                <th>Waiter</th>
-                <th>Original Total</th>
-                <th>Voided By</th>
-                <th>Void Reason</th>
-                <th>Voided At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.id}>
-                  <td><span className="mono">{shortId(b.id)}</span></td>
-                  <td>Table {b.table_number}</td>
-                  <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
-                  <td>{fmtAmt(b.total)}</td>
-                  <td className="mono">{b.voided_by ? shortId(b.voided_by) : '—'}</td>
-                  <td style={{ maxWidth: 180, wordBreak: 'break-word' }}>{b.void_reason || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(b.voided_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </>
-        )}
-      />
-
-      {/* 2. Indent Received */}
-      <AuditSection
-        icon="📬"
-        title="2. Indent Received"
-        description="KOTs acknowledged by the kitchen as received and accepted."
-        loadData={kotService.listIndentReceived.bind(kotService)}
-        renderRows={(rows) => (
-          <>
-            <thead>
-              <tr>
-                <th>KOT</th>
-                <th>Table</th>
-                <th>Waiter</th>
-                <th>Items</th>
-                <th>KOT Sent</th>
-                <th>Acknowledged At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((k) => (
-                <tr key={k.id}>
-                  <td><span className="mono">{shortId(k.id)}</span></td>
-                  <td>Table {k.tableNumber}</td>
-                  <td><span className="tag-waiter">{k.waiterUsername ? `@${k.waiterUsername}` : '—'}</span></td>
-                  <td style={{ maxWidth: 200 }}>
-                    {(k.items || []).map((i) => `${i.name} ×${i.qty}`).join(', ') || '—'}
-                  </td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(k.createdAt)}</td>
-                  <td style={{ whiteSpace: 'nowrap', color: '#34d399' }}>{fmtDate(k.indentReceivedAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </>
-        )}
-      />
-
-      {/* 3. Cancelled KOTs */}
-      <AuditSection
-        icon="✕"
-        title="3. Cancelled KOTs"
-        description="KOTs cancelled before or during preparation."
-        loadData={kotService.listCancelledKots.bind(kotService)}
-        renderRows={(rows) => (
-          <>
-            <thead>
-              <tr>
-                <th>KOT</th>
-                <th>Table</th>
-                <th>Waiter</th>
-                <th>Items</th>
-                <th>Cancel Reason</th>
-                <th>Cancelled At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((k) => (
-                <tr key={k.id}>
-                  <td><span className="mono">{shortId(k.id)}</span></td>
-                  <td>Table {k.tableNumber}</td>
-                  <td><span className="tag-waiter">{k.waiterUsername ? `@${k.waiterUsername}` : '—'}</span></td>
-                  <td style={{ maxWidth: 200 }}>
-                    {(k.items || []).map((i) => `${i.name} ×${i.qty}`).join(', ') || '—'}
-                  </td>
-                  <td style={{ maxWidth: 180, wordBreak: 'break-word' }}>{k.cancelReason || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(k.cancelledAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </>
-        )}
-      />
-
-      {/* 4. Discounts > 50% */}
-      <AuditSection
-        icon="🏷️"
-        title="4. High Discounts (> 50%)"
-        description="Bills where a discount of more than 50% was applied — flagged for review."
-        loadData={(opts) => billingService.listHighDiscountBills({ ...opts, threshold: 50 })}
-        renderRows={(rows) => (
-          <>
-            <thead>
-              <tr>
-                <th>Bill</th>
-                <th>Table</th>
-                <th>Waiter</th>
-                <th>Original Total</th>
-                <th>Discount %</th>
-                <th>Final Total</th>
-                <th>Applied At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.id}>
-                  <td><span className="mono">{shortId(b.id)}</span></td>
-                  <td>Table {b.table_number}</td>
-                  <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
-                  <td>{fmtAmt(b.subtotal)}</td>
-                  <td><span style={{ color: '#f87171', fontWeight: 700 }}>{b.discount_percent}%</span></td>
-                  <td style={{ color: '#34d399' }}>{fmtAmt(b.total)}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(b.discount_applied_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </>
-        )}
-      />
-
-      {/* 5. Resettled Bills */}
-      <AuditSection
-        icon="🔁"
-        title="5. Resettled Bills"
-        description="Bills that were closed and then reopened for re-settlement."
-        loadData={billingService.listResettledBills.bind(billingService)}
-        renderRows={(rows) => (
-          <>
-            <thead>
-              <tr>
-                <th>Bill</th>
-                <th>Table</th>
-                <th>Waiter</th>
-                <th>Total</th>
-                <th>Original Payment</th>
-                <th>New Payment</th>
-                <th>Resettled At</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((b) => (
-                <tr key={b.id}>
-                  <td><span className="mono">{shortId(b.id)}</span></td>
-                  <td>Table {b.table_number}</td>
-                  <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
-                  <td>{fmtAmt(b.total)}</td>
-                  <td>{b.original_payment_method || '—'}</td>
-                  <td style={{ color: '#34d399' }}>{b.new_payment_method || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{fmtDate(b.resettled_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </>
-        )}
-      />
-    </div>
-  );
-}
 
 // ── MODIFICATIONS TAB ─────────────────────────────────────
 function ModificationsTab({ currentUser }) {
@@ -329,14 +61,35 @@ function ModificationsTab({ currentUser }) {
 
   const confirmReject = async () => {
     if (!rejectModal) return;
+    const reason = rejectReason.trim();
+    if (!reason) {
+      setActionError('Reason is required.');
+      return;
+    }
     setActing(rejectModal.requestId);
     setActionError('');
     try {
-      await billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, rejectReason.trim() || null);
+      await billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, reason);
+      const nowIso = new Date().toISOString();
+      const mgrLabel =
+        (currentUser?.name && String(currentUser.name).trim()) ||
+        (currentUser?.username ? `@${currentUser.username}` : null);
       setRequests((prev) =>
-        prev.map((r) => (r.id === rejectModal.requestId ? { ...r, status: 'rejected' } : r))
+        prev.map((r) =>
+          r.id === rejectModal.requestId
+            ? {
+                ...r,
+                status: 'rejected',
+                rejection_reason: reason,
+                reviewed_at: nowIso,
+                rejected_at: nowIso,
+                rejected_by_display_name: mgrLabel,
+              }
+            : r
+        )
       );
       setRejectModal(null);
+      setRejectReason('');
     } catch (err) {
       setActionError(err.message || 'Failed to reject.');
     } finally {
@@ -468,10 +221,10 @@ function ModificationsTab({ currentUser }) {
           }}>
             <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>Reject Request</div>
             <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: '1rem' }}>
-              Optionally provide a reason for rejection. The waiter will be notified.
+              A reason is required. The waiter will see it in their summary.
             </div>
             <textarea
-              placeholder="Rejection reason (optional)"
+              placeholder="Reason is required"
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               rows={3}
@@ -493,7 +246,7 @@ function ModificationsTab({ currentUser }) {
               </button>
               <button
                 onClick={confirmReject}
-                disabled={!!acting}
+                disabled={!!acting || !rejectReason.trim()}
                 className="btn-mod-reject"
                 style={{ padding: '0.45rem 1.1rem' }}
               >
@@ -507,6 +260,20 @@ function ModificationsTab({ currentUser }) {
   );
 }
 
+/** Never show raw Postgres/PostgREST errors in the staff UI. */
+function staffFacingError(err, friendlyDefault) {
+  const raw = String(err?.message || err || '');
+  if (!raw) return friendlyDefault;
+  if (
+    /does not exist|42703|42P01|PGRST204|schema cache|permission denied|JWT expired|connection/i.test(
+      raw
+    )
+  ) {
+    return friendlyDefault;
+  }
+  return raw.length > 320 ? friendlyDefault : raw;
+}
+
 // ── STAFF TAB ─────────────────────────────────────────────
 function StaffTab({ currentUser }) {
   const [staff, setStaff] = useState([]);
@@ -515,6 +282,9 @@ function StaffTab({ currentUser }) {
   const [staffError, setStaffError] = useState('');
   const [staffSaving, setStaffSaving] = useState(false);
   const [resetSaving, setResetSaving] = useState(false);
+  const [availablePins, setAvailablePins] = useState([]);
+  const [loadingPins, setLoadingPins] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, name }
   const [staffForm, setStaffForm] = useState({ name: '', phone: '', username: '', role: 'waiter', pin: '', confirmPin: '' });
   const [pinResetForm, setPinResetForm] = useState({ username: '', newPin: '', confirmPin: '' });
 
@@ -525,13 +295,35 @@ function StaffTab({ currentUser }) {
       const rows = await managerService.listStaff({ managerUser: currentUser });
       setStaff(rows);
     } catch (err) {
-      setStaffError(err.message || 'Unable to load staff.');
+      console.warn(err);
+      setStaffError(
+        staffFacingError(err, 'Unable to load staff. Please refresh the page. If this continues, ask an admin to verify the database is up to date.')
+      );
     } finally {
       setLoadingStaff(false);
     }
   }, [currentUser]);
 
   useEffect(() => { refreshStaff(); }, [refreshStaff]);
+
+  const refreshPinSuggestions = useCallback(async () => {
+    setLoadingPins(true);
+    try {
+      const pins = await managerService.getAvailablePins();
+      setAvailablePins(pins);
+    } catch (_) {
+      // Fail silently per requirement.
+      setAvailablePins([]);
+    } finally {
+      setLoadingPins(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // When the create-staff form is opened/mounted, preload suggestions.
+    if (!currentUser) return;
+    refreshPinSuggestions();
+  }, [currentUser, refreshPinSuggestions]);
 
   const submitStaffRegistration = async (e) => {
     e.preventDefault();
@@ -546,9 +338,10 @@ function StaffTab({ currentUser }) {
       });
       setStaffMessage(`Created. Staff code: ${created.code}`);
       setStaffForm({ name: '', phone: '', username: '', role: 'waiter', pin: '', confirmPin: '' });
+      await refreshPinSuggestions();
       await refreshStaff();
     } catch (err) {
-      setStaffError(err.message || 'Unable to create staff.');
+      setStaffError(staffFacingError(err, 'Unable to create staff.'));
     } finally {
       setStaffSaving(false);
     }
@@ -565,25 +358,23 @@ function StaffTab({ currentUser }) {
       setStaffMessage('PIN reset successful.');
       setPinResetForm({ username: '', newPin: '', confirmPin: '' });
     } catch (err) {
-      setStaffError(err.message || 'Unable to reset PIN.');
+      setStaffError(staffFacingError(err, 'Unable to reset PIN.'));
     } finally {
       setResetSaving(false);
     }
   };
 
-  const setUserActive = async (userId, active) => {
+  const confirmDelete = async () => {
+    if (!deleteConfirm) return;
     setStaffMessage(''); setStaffError('');
     try {
-      if (active) {
-        await managerService.reactivateStaff({ managerUser: currentUser, userId });
-        setStaffMessage('Staff reactivated.');
-      } else {
-        await managerService.deactivateStaff({ managerUser: currentUser, userId });
-        setStaffMessage('Staff deactivated.');
-      }
+      await managerService.deleteStaff({ managerUser: currentUser, userId: deleteConfirm.id });
+      setStaffMessage(`${deleteConfirm.name} has been removed from the system.`);
+      setDeleteConfirm(null);
       await refreshStaff();
     } catch (err) {
-      setStaffError(err.message || 'Unable to update staff status.');
+      setStaffError(staffFacingError(err, 'Unable to remove staff.'));
+      setDeleteConfirm(null);
     }
   };
 
@@ -593,8 +384,6 @@ function StaffTab({ currentUser }) {
       <input className="staff-input" {...inputProps} />
     </div>
   );
-
-  const activeWaiters = staff.filter((m) => m.role === 'waiter' && m.active);
 
   return (
     <div>
@@ -616,7 +405,45 @@ function StaffTab({ currentUser }) {
               <option value="manager">Manager</option>
             </select>
           </div>
-          {sField('4-digit PIN *', { type: 'password', placeholder: '••••', maxLength: 4, value: staffForm.pin, onChange: (e) => setStaffForm((p) => ({ ...p, pin: e.target.value.replace(/\D/g, '') })), required: true })}
+          <div className="staff-field">
+            <label>4-digit PIN *</label>
+            <input
+              className="staff-input"
+              type="password"
+              placeholder="••••"
+              maxLength={4}
+              value={staffForm.pin}
+              onChange={(e) => setStaffForm((p) => ({ ...p, pin: e.target.value.replace(/\D/g, '') }))}
+              required
+            />
+            {availablePins.length > 0 && (
+              <div className="pin-suggestions">
+                <div className="pin-suggestions-head">
+                  <span className="pin-suggestions-label">Available PINs:</span>
+                  <button
+                    type="button"
+                    className="pin-refresh-link"
+                    onClick={refreshPinSuggestions}
+                    disabled={loadingPins}
+                  >
+                    {loadingPins ? 'Refreshing…' : 'Refresh suggestions'}
+                  </button>
+                </div>
+                <div className="pin-suggestions-row">
+                  {availablePins.map((pin) => (
+                    <button
+                      type="button"
+                      key={pin}
+                      className="pin-chip"
+                      onClick={() => setStaffForm((p) => ({ ...p, pin, confirmPin: pin }))}
+                    >
+                      {pin}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           {sField('Confirm PIN *', { type: 'password', placeholder: '••••', maxLength: 4, value: staffForm.confirmPin, onChange: (e) => setStaffForm((p) => ({ ...p, confirmPin: e.target.value.replace(/\D/g, '') })), required: true })}
           <button type="submit" className="btn-staff-submit" disabled={staffSaving}>
             {staffSaving ? 'Creating…' : 'Create Staff Member'}
@@ -637,54 +464,86 @@ function StaffTab({ currentUser }) {
         </form>
       </div>
 
-      {/* Active Waiters */}
+      {/* Staff List */}
       <div className="staff-section">
-        <div className="staff-section-title">Active Waiters</div>
+        <div className="staff-section-title">All Staff</div>
         {loadingStaff ? (
           <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Loading…</p>
-        ) : activeWaiters.length === 0 ? (
-          <p style={{ color: '#475569', fontSize: '0.85rem' }}>No active waiters.</p>
+        ) : staff.length === 0 ? (
+          <p style={{ color: '#475569', fontSize: '0.85rem' }}>No staff members registered.</p>
         ) : (
-          activeWaiters.map((m) => (
-            <div key={m.id} className="staff-member-row">
-              <div className="staff-member-info">
-                <div className="staff-member-name">{m.name}</div>
-                <div className="staff-member-meta">
-                  {m.username && <span className="staff-member-username">@{m.username}</span>}
-                  <span style={{ marginLeft: m.username ? '0.4rem' : 0 }}>{m.phone}</span>
-                </div>
-              </div>
-              <button className="btn-deactivate" onClick={() => setUserActive(m.id, false)}>Deactivate</button>
-            </div>
-          ))
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+            <thead>
+              <tr style={{ borderBottom: '1px solid #334155' }}>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Full Name</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Username</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Role</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Phone</th>
+                <th style={{ padding: '0.4rem 0.5rem' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {staff.map((m) => (
+                <tr key={m.id} style={{ borderBottom: '1px solid #1e293b' }}>
+                  <td style={{ padding: '0.5rem 0.5rem', color: '#e2e8f0', fontWeight: 600 }}>{m.name}</td>
+                  <td style={{ padding: '0.5rem 0.5rem', color: '#94a3b8' }}>{m.username ? `@${m.username}` : '—'}</td>
+                  <td style={{ padding: '0.5rem 0.5rem' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4, background: '#1e293b', color: '#cbd5e1' }}>
+                      {ROLE_LABELS[m.role] || m.role}
+                    </span>
+                  </td>
+                  <td style={{ padding: '0.5rem 0.5rem', color: '#64748b' }}>{m.phone}</td>
+                  <td style={{ padding: '0.5rem 0.5rem', textAlign: 'right' }}>
+                    <button
+                      className="btn-deactivate"
+                      style={{ background: '#7f1d1d', color: '#fca5a5', border: '1px solid #991b1b' }}
+                      onClick={() => setDeleteConfirm({ id: m.id, name: m.name })}
+                    >
+                      Delete
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
 
-      {/* All Staff */}
-      <details style={{ marginTop: '0.5rem' }}>
-        <summary style={{ cursor: 'pointer', color: '#64748b', fontSize: '0.82rem', marginBottom: '0.5rem' }}>
-          All Staff ({staff.length})
-        </summary>
-        {staff.map((m) => (
-          <div key={m.id} className="staff-member-row" style={{ opacity: m.active ? 1 : 0.5 }}>
-            <div className="staff-member-info">
-              <div className="staff-member-name">
-                {m.name}
-                <span style={{ marginLeft: '0.5rem', fontSize: '0.72rem', color: '#64748b' }}>
-                  {ROLE_LABELS[m.role] || m.role}
-                </span>
-                {m.username && <span className="staff-member-username">@{m.username}</span>}
-              </div>
-              <div className="staff-member-meta">{m.phone} · {m.active ? 'Active' : 'Inactive'}</div>
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
+        }}>
+          <div style={{
+            background: '#1e293b', border: '1px solid #7f1d1d', borderRadius: 12,
+            padding: '1.5rem', width: '90%', maxWidth: 400,
+          }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#f1f5f9', marginBottom: '0.5rem' }}>
+              Remove staff member?
             </div>
-            {m.active ? (
-              <button className="btn-deactivate" onClick={() => setUserActive(m.id, false)}>Deactivate</button>
-            ) : (
-              <button className="btn-reactivate" onClick={() => setUserActive(m.id, true)}>Reactivate</button>
-            )}
+            <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1.25rem' }}>
+              Are you sure you want to remove <strong style={{ color: '#e2e8f0' }}>{deleteConfirm.name}</strong> from the system?
+              Their PIN will be freed up and they will no longer be able to log in.
+              Historical KOTs and bills attributed to them are preserved.
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setDeleteConfirm(null)}
+                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                style={{ padding: '0.45rem 1.1rem', background: '#991b1b', color: '#fca5a5', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}
+              >
+                Yes, Remove
+              </button>
+            </div>
           </div>
-        ))}
-      </details>
+        </div>
+      )}
     </div>
   );
 }
@@ -863,6 +722,172 @@ function PagersTab({ currentUser }) {
   );
 }
 
+// ── BILLS TAB ─────────────────────────────────────────────
+function BillsTab() {
+  const today = new Date().toISOString().slice(0, 10);
+  const [dates, setDates] = useState({ from: today, to: today });
+  const [search, setSearch] = useState('');
+  const [bills, setBills] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [expanded, setExpanded] = useState(null);
+  const [billAuditCache, setBillAuditCache] = useState({});
+  const [billAuditLoading, setBillAuditLoading] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const from = dates.from ? new Date(dates.from + 'T00:00:00').toISOString() : null;
+      const to   = dates.to   ? new Date(dates.to   + 'T23:59:59').toISOString() : null;
+      const data = await billingService.listBills({ fromDate: from, toDate: to, search: search.trim() });
+      setBills(data || []);
+    } catch (e) {
+      setError(e.message || 'Failed to load bills.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [dates.from, dates.to]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const toggleBillRow = async (billId) => {
+    if (expanded === billId) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(billId);
+    if (!billAuditCache[billId]) {
+      setBillAuditLoading(billId);
+      try {
+        const auditBill = await buildAuditBillDetail(billId);
+        setBillAuditCache((c) => ({ ...c, [billId]: auditBill }));
+      } catch (e) {
+        console.warn(e);
+        setBillAuditCache((c) => ({ ...c, [billId]: { error: 'Could not load annotated bill.' } }));
+      } finally {
+        setBillAuditLoading(null);
+      }
+    }
+  };
+  const handleSearch = (e) => {
+    e.preventDefault();
+    load();
+  };
+
+  const STATUS_COLOR = {
+    printed: '#60a5fa',
+    void: '#f87171',
+    resettled: '#34d399',
+    open: '#fbbf24',
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>From</label>
+          <input type="date" className="audit-date-input" value={dates.from} onChange={e => setDates(p => ({ ...p, from: e.target.value }))} />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>To</label>
+          <input type="date" className="audit-date-input" value={dates.to} onChange={e => setDates(p => ({ ...p, to: e.target.value }))} />
+        </div>
+        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.4rem' }}>
+          <input
+            type="text"
+            className="inv-search"
+            placeholder="Search waiter / bill ID…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ minWidth: 180 }}
+          />
+          <button type="submit" style={{ padding: '0.4rem 0.85rem', background: '#334155', color: '#e2e8f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem' }}>
+            Search
+          </button>
+        </form>
+      </div>
+
+      {loading ? (
+        <p className="audit-empty">Loading…</p>
+      ) : error ? (
+        <p className="audit-error">{error}</p>
+      ) : bills.length === 0 ? (
+        <p className="audit-empty">No bills found for this date range.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="audit-table">
+            <thead>
+              <tr>
+                <th>Bill</th>
+                <th>Table</th>
+                <th>Waiter</th>
+                <th>Items</th>
+                <th>Subtotal</th>
+                <th>Discount</th>
+                <th>Total</th>
+                <th>Status</th>
+                <th>Time</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bills.map((b) => {
+                const isExpanded = expanded === b.id;
+                const items = b.bill_items || [];
+                const includedItems = items.filter(i => i.include_in_bill);
+                const auditBill = billAuditCache[b.id];
+                const auditLoading = billAuditLoading === b.id;
+                return (
+                  <React.Fragment key={b.id}>
+                    <tr
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => toggleBillRow(b.id)}
+                    >
+                      <td><span className="mono">{shortId(b.id)}</span></td>
+                      <td>Table {b.table_number}</td>
+                      <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
+                      <td>{includedItems.length}</td>
+                      <td>{fmtAmt(b.subtotal)}</td>
+                      <td>
+                        {b.discount_percent ? (
+                          <span style={{ color: '#fbbf24', fontWeight: 700 }}>{b.discount_percent}%</span>
+                        ) : '—'}
+                      </td>
+                      <td style={{ fontWeight: 700 }}>{fmtAmt(b.total)}</td>
+                      <td>
+                        <span style={{
+                          fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: 4,
+                          background: 'rgba(255,255,255,0.06)',
+                          color: STATUS_COLOR[b.bill_status] || '#94a3b8',
+                        }}>
+                          {b.bill_status || '—'}
+                        </span>
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap', color: '#64748b' }}>{fmtDate(b.created_at)}</td>
+                    </tr>
+                    {isExpanded && (
+                      <tr>
+                        <td colSpan={9} style={{ padding: '0.75rem 1rem', background: '#0f172a', verticalAlign: 'top' }}>
+                          {auditLoading && (
+                            <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Loading annotated bill…</span>
+                          )}
+                          {!auditLoading && (
+                            <AuditBillDetailPanel pct={Number(b.discount_percent) || 0} auditBill={auditBill} />
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── TOOLS TAB ─────────────────────────────────────────────
 function ToolsTab({ currentUser }) {
   const [logs, setLogs] = useState([]);
@@ -1033,7 +1058,7 @@ function InventoryTab() {
                   alt={item.name}
                   className="inv-card-img"
                   loading="lazy"
-                  onError={e => { e.target.src = 'https://images.unsplash.com/photo-1546793665-c74683f339c1?auto=format&fit=crop&w=300&h=200&q=60'; }}
+                  onError={e => { e.target.src = '/placeholder.svg'; }}
                 />
                 {item.outOfStock && (
                   <span className="inv-oos-badge">OUT OF STOCK</span>
@@ -1079,7 +1104,8 @@ export default function ManagerApp() {
 
   const tabs = [
     { id: 'modifications', label: 'Modifications', badge: pendingCount },
-    { id: 'audit',         label: 'Audit Dashboard' },
+    { id: 'audit',         label: 'Audit Feed' },
+    { id: 'bills',         label: 'Bills' },
     { id: 'inventory',     label: 'Inventory' },
     { id: 'staff',         label: 'Staff' },
     { id: 'pagers',        label: 'Pagers' },
@@ -1119,7 +1145,8 @@ export default function ManagerApp() {
 
       <div className="mgr-content">
         {activeTab === 'modifications' && <ModificationsTab currentUser={currentUser} />}
-        {activeTab === 'audit'         && <AuditTab />}
+        {activeTab === 'audit'         && <AuditFeedTab />}
+        {activeTab === 'bills'         && <BillsTab />}
         {activeTab === 'inventory'     && <InventoryTab />}
         {activeTab === 'staff'         && <StaffTab currentUser={currentUser} />}
         {activeTab === 'pagers'        && <PagersTab currentUser={currentUser} />}
