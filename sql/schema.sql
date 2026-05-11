@@ -90,7 +90,19 @@ create table if not exists kot_items (
   qty integer not null,
   price_snapshot numeric(10,2) not null,
   image_url text null,
-  status text not null check (status in ('pending', 'done', 'out_of_stock', 'cancelled', 'removed')),
+  removed_qty integer null,
+  final_qty integer null,
+  status text not null check (
+    status in (
+      'pending',
+      'done',
+      'out_of_stock',
+      'cancelled',
+      'removed',
+      'partially_removed',
+      'removed_entirely'
+    )
+  ),
   updated_at timestamptz not null
 );
 
@@ -240,6 +252,7 @@ create table if not exists bill_modification_requests (
   bill_id                text        not null references bills(id),
   waiter_id              text        null references users(id),
   waiter_username        text        null,
+  waiter_name            varchar(100) null,
   table_number           integer     null,
   items_to_remove        jsonb       not null,
   reason                 text        not null,
@@ -247,7 +260,23 @@ create table if not exists bill_modification_requests (
   requested_at           timestamptz not null default now(),
   reviewed_by_manager_id text        null references users(id),
   reviewed_at            timestamptz null,
-  rejection_reason       text        null
+  rejection_reason       text        null,
+  rejected_at            timestamptz null,
+  rejected_by            varchar(100) null,
+  rejected_by_display_name text      null,
+  approved_at            timestamptz null,
+  approved_by            varchar(100) null,
+  approved_reason        text        null,
+  approved_by_display_name text      null,
+  approval_note          text        null,
+  removal_qty            integer     null,
+  remaining_qty          integer     null,
+  item_name              varchar(255) null,
+  original_qty           integer     null,
+  final_qty              integer     null,
+  removed_qty            integer     null,
+  kot_id                 text        null,
+  item_id                varchar(100) null
 );
 
 create index if not exists idx_bill_mod_requests_status

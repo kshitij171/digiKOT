@@ -3,16 +3,18 @@ import { useAuth } from '../context/AuthContext';
 import { menuService } from '../services/menuService';
 import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
+import PastKotsOverlay from './PastKotsOverlay';
 import './KitchenApp.css';
 
 export default function KitchenApp() {
-  const { currentUser } = useAuth();
+  const { currentUser, supervisorId, supervisorName } = useAuth();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [kots, setKots] = useState([]);
   const [pendingActions, setPendingActions] = useState({});
   const [activeTab, setActiveTab] = useState('live');
   const [menuItems, setMenuItems] = useState([]);
   const [cancellationRequests, setCancellationRequests] = useState([]);
+  const [showPastKots, setShowPastKots] = useState(false);
 
   // Fetch Menu listener
   useEffect(() => {
@@ -40,7 +42,14 @@ export default function KitchenApp() {
     if (!kot) return;
 
     try {
-      await kotService.markItemStatus({ kotId, itemId, status: newStatus, kitchenUserId: currentUser?.id || null });
+      await kotService.markItemStatus({
+        kotId,
+        itemId,
+        status: newStatus,
+        kitchenUserId: currentUser?.id || null,
+        supervisorId: supervisorId || null,
+        supervisorName: supervisorName || null,
+      });
     } catch (err) {
       console.error("Error updating item status:", err);
     }
@@ -86,20 +95,14 @@ export default function KitchenApp() {
     }
   };
 
-  const handleAcknowledgeIndent = async (kotId) => {
-    try {
-      await kotService.acknowledgeIndent({ kotId, kitchenUserId: currentUser?.id || null });
-    } catch (err) {
-      console.error('Failed to acknowledge indent:', err);
-    }
-  };
-
   const handleCancelResponse = async (req, isApprove) => {
     try {
       await cancelService.reviewCancel({
         request: req,
         reviewerUserId: currentUser?.id || null,
         approve: isApprove,
+        supervisorId: supervisorId || null,
+        supervisorName: supervisorName || null,
       });
     } catch (e) {
       console.error("Error handling cancellation request:", e);
@@ -133,10 +136,21 @@ export default function KitchenApp() {
             <button className={`k-tab ${activeTab === 'oos' ? 'active' : ''}`} onClick={() => setActiveTab('oos')}>Out of Stock</button>
           </div>
         </div>
-        <div className="live-clock">
-          {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+        <div className="kitchen-header-right">
+          {supervisorId && (
+            <button className="btn-past-kots" onClick={() => setShowPastKots(true)}>
+              📋 Past KOTs
+            </button>
+          )}
+          <div className="live-clock">
+            {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          </div>
         </div>
       </div>
+
+      {showPastKots && supervisorId && (
+        <PastKotsOverlay supervisorId={supervisorId} onClose={() => setShowPastKots(false)} />
+      )}
 
       {activeTab === 'live' && (
         <div className="kots-container">
@@ -196,20 +210,6 @@ export default function KitchenApp() {
                       <div className={`kot-time ${isUrgent ? 'urgent' : ''}`}>
                         {getElapsedTime(kot.createdAt)}
                       </div>
-                    </div>
-                    <div className="kot-indent-ack">
-                      {kot.indentReceivedAt ? (
-                        <span className="indent-acked">
-                          ✓ Received {kot.indentReceivedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      ) : (
-                        <button
-                          className="btn-indent-ack"
-                          onClick={() => handleAcknowledgeIndent(kot.id)}
-                        >
-                          Indent Received
-                        </button>
-                      )}
                     </div>
                   </div>
 

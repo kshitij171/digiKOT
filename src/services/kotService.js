@@ -19,18 +19,23 @@ function mapKot(row) {
     specialInstructions: row.special_instructions || '',
     kotStatus: row.status,
     createdAt: row.created_at ? new Date(row.created_at) : null,
-    indentReceivedAt: row.indent_received_at ? new Date(row.indent_received_at) : null,
-    indentReceivedBy: row.indent_received_by || null,
+    clearedAt: row.cleared_at ? new Date(row.cleared_at) : null,
     cancelledAt: row.cancelled_at ? new Date(row.cancelled_at) : null,
     cancelledBy: row.cancelled_by || null,
     cancelReason: row.cancel_reason || null,
+    supervisorId: row.supervisor_id || null,
+    supervisorName: row.supervisor_name || null,
+    assignedAt: row.assigned_at ? new Date(row.assigned_at) : null,
     items: (row.items || []).map((item) => ({
       itemId: item.menu_item_id,
+      itemName: item.item_name_snapshot,
       name: item.item_name_snapshot,
       price: item.price_snapshot,
       qty: item.qty,
       imageUrl: item.image_url,
       status: item.status,
+      removedQty: item.removed_qty ?? 0,
+      finalQty: item.final_qty ?? null,
     })),
   };
 }
@@ -109,9 +114,18 @@ export const kotService = {
   },
 
   // ── Audit list queries ────────────────────────────────────
-  async listIndentReceived({ fromDate, toDate } = {}) {
-    const rows = await kotRepository.listIndentReceived({ fromDate, toDate });
-    return rows.map(mapKot);
+
+  /**
+   * Paginated past KOTs cleared by this supervisor.
+   * Returns { kots, total, page, pageSize }.
+   */
+  async listPastKots(supervisorId, page = 1, pageSize = 20) {
+    const offset = (page - 1) * pageSize;
+    const { rows, total } = await kotRepository.listClearedBySupervisor(supervisorId, {
+      offset,
+      limit: pageSize,
+    });
+    return { kots: rows.map(mapKot), total, page, pageSize };
   },
 
   async listCancelledKots({ fromDate, toDate } = {}) {
@@ -147,17 +161,6 @@ export const kotService = {
     return kotId;
   },
 
-  async acknowledgeIndent({ kotId, kitchenUserId }) {
-    await kotRepository.markIndentReceived(kotId, kitchenUserId);
-    await auditService.log({
-      actor_user_id: kitchenUserId,
-      action: 'INDENT_RECEIVED',
-      entity_type: 'kot',
-      entity_id: kotId,
-      after_json: { receivedAt: new Date().toISOString() },
-    });
-  },
-
   async cancelKot({ kotId, cancelledBy, cancelReason }) {
     await kotRepository.cancelKot(kotId, { cancelledBy, cancelReason });
     await kotActionsRepository.logAction({
@@ -174,8 +177,16 @@ export const kotService = {
     });
   },
 
-  async markItemStatus({ kotId, itemId, status, kitchenUserId }) {
+  async markItemStatus({ kotId, itemId, status, kitchenUserId, supervisorId, supervisorName }) {
     const kot = await kotRepository.getById(kotId);
+
+    // First-touch ownership: tag this KOT with the supervisor who acted first
+    if (supervisorId && !kot?.supervisor_id) {
+      await kotRepository.assignSupervisor(kotId, supervisorId, supervisorName || null).catch((e) =>
+        console.warn('assignSupervisor failed:', e)
+      );
+    }
+
     await kotRepository.updateItemStatus(kotId, itemId, status);
     if (status === 'out_of_stock') {
       await menuService.setOutOfStock(itemId, true);

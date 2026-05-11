@@ -1,6 +1,13 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
 import { createId } from '../lib/utils/id';
 
+/** Only these values are valid for bill_modification_requests.status */
+export const BillModRequestStatus = Object.freeze({
+  PENDING: 'pending',
+  APPROVED: 'approved',
+  REJECTED: 'rejected',
+});
+
 export const billModificationRepository = {
   async createRequest({ billId, waiterId, waiterUsername, tableNumber, itemsToRemove, reason }) {
     return dbAdapter.insert('bill_modification_requests', {
@@ -8,10 +15,11 @@ export const billModificationRepository = {
       bill_id: billId,
       waiter_id: waiterId || null,
       waiter_username: waiterUsername || null,
+      waiter_name: waiterUsername || null,
       table_number: tableNumber || null,
       items_to_remove: itemsToRemove,
       reason,
-      status: 'pending',
+      status: BillModRequestStatus.PENDING,
       requested_at: new Date().toISOString(),
     });
   },
@@ -25,7 +33,7 @@ export const billModificationRepository = {
 
   async listPending() {
     return dbAdapter.select('bill_modification_requests', {
-      filters: [{ column: 'status', value: 'pending' }],
+      filters: [{ column: 'status', value: BillModRequestStatus.PENDING }],
       orderBy: 'requested_at',
       ascending: false,
     });
@@ -39,16 +47,110 @@ export const billModificationRepository = {
     });
   },
 
+  async listApprovedForBill(billId) {
+    return dbAdapter.select('bill_modification_requests', {
+      filters: [
+        { column: 'bill_id', value: billId },
+        { column: 'status', value: BillModRequestStatus.APPROVED },
+      ],
+      orderBy: 'reviewed_at',
+      ascending: true,
+    });
+  },
+
   async updateStatus(requestId, status, reviewedByManagerId, rejectionReason) {
+    const allowed = new Set(Object.values(BillModRequestStatus));
+    if (!allowed.has(status)) {
+      throw new Error(`Invalid bill modification status: ${status}`);
+    }
+    const now = new Date().toISOString();
+    const base = {
+      status,
+      reviewed_by_manager_id: reviewedByManagerId || null,
+      reviewed_at: now,
+      rejection_reason: rejectionReason || null,
+    };
+    if (status === BillModRequestStatus.REJECTED) {
+      base.rejected_at = now;
+    }
+    return dbAdapter.update('bill_modification_requests', base, [{ column: 'id', value: requestId }]);
+  },
+
+  /**
+   * Manager approval: status + timestamps + optional note + display name.
+   * Must run before KOT/bill side-effects (call order enforced in service).
+   */
+  async markApproved(requestId, reviewedByManagerId, approvedByDisplayName, approvalNote) {
+    const now = new Date().toISOString();
     return dbAdapter.update(
       'bill_modification_requests',
       {
-        status,
+        status: BillModRequestStatus.APPROVED,
         reviewed_by_manager_id: reviewedByManagerId || null,
-        reviewed_at: new Date().toISOString(),
-        rejection_reason: rejectionReason || null,
+        reviewed_at: now,
+        approved_at: now,
+        approved_by: approvedByDisplayName || null,
+        approved_reason: approvalNote || null,
+        approved_by_display_name: approvedByDisplayName || null,
+        approval_note: approvalNote || null,
+        rejection_reason: null,
+        rejected_at: null,
+        rejected_by: null,
+        rejected_by_display_name: null,
       },
       [{ column: 'id', value: requestId }]
     );
+  },
+
+  /**
+   * Manager rejection: required reason, id + display name, timestamps.
+   */
+  async markRejected(requestId, reviewedByManagerId, rejectedByDisplayName, rejectionReason) {
+    const now = new Date().toISOString();
+    return dbAdapter.update(
+      'bill_modification_requests',
+      {
+        status: BillModRequestStatus.REJECTED,
+        reviewed_by_manager_id: reviewedByManagerId || null,
+        reviewed_at: now,
+        rejected_at: now,
+        rejected_by: rejectedByDisplayName || null,
+        rejected_by_display_name: rejectedByDisplayName || null,
+        rejection_reason: rejectionReason,
+        approved_at: null,
+        approved_by: null,
+        approved_reason: null,
+        approved_by_display_name: null,
+        approval_note: null,
+      },
+      [{ column: 'id', value: requestId }]
+    );
+  },
+
+  /** Waiter's removal requests for this table (pending / rejected / approved history). */
+  async listRecentForTableWaiter(tableNumber, waiterId, limit = 40) {
+    if (waiterId == null) return [];
+    return dbAdapter.select('bill_modification_requests', {
+      filters: [
+        { column: 'table_number', value: tableNumber },
+        { column: 'waiter_id', value: waiterId },
+      ],
+      orderBy: 'requested_at',
+      ascending: false,
+      limit,
+    });
+  },
+
+  /** Approved removal requests for a table (waiter summary annotations). */
+  async listApprovedForTable(tableNumber, limit = 50) {
+    return dbAdapter.select('bill_modification_requests', {
+      filters: [
+        { column: 'table_number', value: tableNumber },
+        { column: 'status', value: BillModRequestStatus.APPROVED },
+      ],
+      orderBy: 'reviewed_at',
+      ascending: false,
+      limit,
+    });
   },
 };

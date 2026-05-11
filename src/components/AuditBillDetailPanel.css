@@ -1,0 +1,178 @@
+/* Manager audit-only bill breakdown (not used on waiter print) */
+
+.audit-bill-panel {
+  font-size: 0.82rem;
+  color: var(--text-primary, #e2e8f0);
+}
+
+.audit-bill-error {
+  color: #f87171;
+  margin: 0;
+}
+
+.audit-bill-waiver {
+  margin-bottom: 0.75rem;
+}
+
+.audit-bill-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.85rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+}
+
+.audit-bill-meta-strong {
+  font-weight: 700;
+  color: #c9a84c;
+}
+
+.audit-bill-meta-muted {
+  opacity: 0.5;
+}
+
+.audit-bill-status {
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.audit-bill-status--void {
+  color: #f87171;
+}
+
+.audit-bill-status--printed {
+  color: #60a5fa;
+}
+
+.audit-bill-empty {
+  color: #64748b;
+  margin: 0 0 0.75rem;
+}
+
+.audit-bill-lines {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+}
+
+.audit-bill-line {
+  margin-bottom: 0.65rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.audit-bill-line:last-child {
+  border-bottom: none;
+}
+
+.audit-bill-line-main {
+  display: grid;
+  grid-template-columns: minmax(10rem, 1fr) minmax(3rem, 2fr) auto;
+  align-items: baseline;
+  gap: 0.35rem;
+  width: 100%;
+}
+
+.audit-bill-line-main.struck .audit-bill-line-title-col {
+  text-decoration: line-through;
+  opacity: 0.65;
+}
+
+.audit-bill-line-title-col {
+  min-width: 0;
+  color: #f1f5f9;
+  font-weight: 500;
+  word-break: break-word;
+}
+
+.audit-bill-line-name {
+  font-weight: 600;
+  color: inherit;
+}
+
+.audit-bill-line-qty {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.audit-bill-dots {
+  color: #475569;
+  font-size: 0.55rem;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  user-select: none;
+  justify-self: stretch;
+  text-align: center;
+}
+
+.audit-bill-kot {
+  font-size: 0.72rem;
+  color: #64748b;
+  font-weight: 600;
+}
+
+.audit-bill-line-amt {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.audit-bill-line-amt.muted {
+  font-weight: 600;
+  color: #64748b;
+}
+
+.audit-bill-line-sub {
+  margin-top: 0.2rem;
+  padding-left: 0.5rem;
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.audit-bill-line-sub.muted {
+  text-decoration: line-through;
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.audit-bill-totals {
+  border-top: 1px solid rgba(201, 168, 76, 0.25);
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+}
+
+.audit-bill-total-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.2rem 0;
+  color: #cbd5e1;
+}
+
+.audit-bill-total-row.removed {
+  color: #fbbf24;
+}
+
+.audit-bill-total-row.grand {
+  margin-top: 0.35rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+  font-weight: 800;
+  font-size: 0.9rem;
+  color: #c9a84c;
+}
+
+.audit-bill-footnote {
+  margin: 0.75rem 0 0;
+  font-size: 0.7rem;
+  color: #64748b;
+  font-style: italic;
+}

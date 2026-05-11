@@ -46,15 +46,17 @@ export const authService = {
     if (!username) throw new Error('Username is required.');
     if (!validatePin(newPin)) throw new Error('PIN must be exactly 4 digits.');
 
+    const normalizedUsername = String(username).trim().toLowerCase();
+
     let user = null;
     try {
-      user = await userRepository.findByUsername(username);
+      user = await userRepository.findByUsername(normalizedUsername);
     } catch (error) {
       console.warn('DB lookup failed for PIN reset.', error);
     }
 
     if (!user) {
-      user = DEMO_USERS.find((u) => u.username === username) || null;
+      user = DEMO_USERS.find((u) => u.username === normalizedUsername) || null;
     }
     if (!user) throw new Error('No staff member found with that username.');
 
@@ -73,7 +75,13 @@ export const authService = {
       user.pin_hash = newPinHash;
       return;
     }
-    await userRepository.updatePinByUserId(user.id, newPinHash);
+    const { rowsAffected } = await userRepository.updatePinByUserId(user.id, newPinHash);
+    console.log(`[authService] PIN update success for username: ${normalizedUsername}, rows affected: ${rowsAffected}`);
+    if (rowsAffected === 0) {
+      throw new Error(
+        `PIN update failed: no record was modified for username "${normalizedUsername}". Please try again or contact a manager.`
+      );
+    }
   },
 
   /**
