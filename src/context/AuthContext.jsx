@@ -58,17 +58,25 @@ export function AuthProvider({ children }) {
     localStorage.removeItem(SESSION_KEY);
   };
 
-  const value = useMemo(
-    () => ({
-      currentUser: session?.user || null,
-      role: session?.role || null,
-      supervisorId: session?.supervisorId || null,
-      supervisorName: session?.supervisorName || null,
+  const value = useMemo(() => {
+    const user = session?.user || null;
+    const role = session?.role || user?.role || null;
+    const isKitchenSupervisor = role === 'kitchen_supervisor';
+    // Backfill from user when session was saved before supervisorId was added
+    const supervisorId =
+      session?.supervisorId || (isKitchenSupervisor && user?.id ? user.id : null);
+    const supervisorName =
+      session?.supervisorName ||
+      (isKitchenSupervisor && user ? user.name || user.username || null : null);
+    return {
+      currentUser: user,
+      role,
+      supervisorId,
+      supervisorName,
       loginWithPin,
       logoutUser,
-    }),
-    [session]
-  );
+    };
+  }, [session]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

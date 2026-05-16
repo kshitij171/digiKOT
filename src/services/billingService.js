@@ -4,7 +4,35 @@ import { auditService } from './auditService';
 import {
   computeBillTotalsFromClearedKots,
   applyDiscountPercent,
+  billableLinesFromClearedKots,
+  ratesFromPercentages,
+  ratesImpliedByBill,
 } from '../lib/billing/billTotals';
+
+function buildBillItemRows(billId, clearedKots) {
+  const rows = [];
+  (clearedKots || []).forEach((kot) => {
+    const kotKey = kot._docId || kot.id;
+    billableLinesFromClearedKots([kot]).forEach(({ item, billQty, unitPrice }) => {
+      const lineName =
+        item.itemName ?? item.name ?? item.item_name ?? item.itemNameSnapshot ?? 'Unknown item';
+      const isPartial = item.status === 'partially_removed';
+      rows.push({
+        bill_id: billId,
+        kot_item_id: `${kotKey}:${item.itemId}`,
+        item_name: lineName,
+        qty: billQty,
+        unit_price: unitPrice,
+        line_total: unitPrice * billQty,
+        include_in_bill: true,
+        removed_qty: isPartial ? Number(item.removedQty) || 0 : null,
+        original_qty: isPartial ? Number(item.qty) || null : null,
+        exclusion_reason: null,
+      });
+    });
+  });
+  return rows;
+}
 
 export const billingService = {
   async createBillForTable({
@@ -40,37 +68,9 @@ export const billingService = {
       discount_percent: pct > 0 ? pct : null,
       discount_applied_by: pct > 0 ? (waiterUserId || null) : null,
       discount_applied_at: pct > 0 ? new Date().toISOString() : null,
-      printed: true,
-      bill_status: 'printed',
+      printed: false,
     });
-    await billingRepository.createBillItems(
-      clearedKots.flatMap((kot) =>
-        (kot.items || []).map((item) => {
-          // For partially removed items, bill the effective (post-removal) quantity.
-          // Fully removed items are excluded from the bill entirely.
-          const isPartial = item.status === 'partially_removed';
-          const isFullyRemoved = item.status === 'removed_entirely';
-          const effectiveQty = isPartial ? (item.finalQty ?? 0) : item.qty;
-          const includedInBill = item.status === 'done' || (isPartial && effectiveQty > 0);
-          const lineName =
-            item.itemName ??
-            item.name ??
-            item.item_name ??
-            item.itemNameSnapshot ??
-            'Unknown item';
-          return {
-            bill_id: billId,
-            kot_item_id: `${kot._docId}:${item.itemId}`,
-            item_name: lineName,
-            qty: effectiveQty,
-            unit_price: item.price,
-            line_total: item.price * effectiveQty,
-            include_in_bill: includedInBill,
-            exclusion_reason: isFullyRemoved ? 'removed_entirely' : (!includedInBill ? item.status : null),
-          };
-        })
-      )
-    );
+    await billingRepository.createBillItems(buildBillItemRows(billId, clearedKots));
     await auditService.log({
       actor_user_id: waiterUserId,
       action: 'create_bill',
@@ -78,6 +78,89 @@ export const billingService = {
       entity_id: billId,
       after_json: { tableNumber, total: finalTotal, discountPercent: pct || null, waiterUsername: waiterUsername || null },
     });
+    return billId;
+  },
+
+  /**
+   * Single source of truth when waiter clears table: upsert one bill row + line items.
+   */
+  async finalizeBillOnClearTable({
+    tableNumber,
+    waiterUserId,
+    waiterUsername,
+    clearedKots,
+    serviceChargePct = 5,
+    taxPct = 18,
+    discountPercent = 0,
+  }) {
+    const draft = await billingRepository.getLatestDraftBillForTable(tableNumber);
+    const cleared = await billingRepository.getLatestClearedBillForTable(tableNumber);
+    const existing = draft || cleared;
+
+    let servicePct = Number(serviceChargePct) || 5;
+    let taxPctVal = Number(taxPct) || 18;
+    let discPct = Number(discountPercent) || 0;
+    if (existing) {
+      const implied = ratesImpliedByBill(existing);
+      if (existing.subtotal > 0) {
+        servicePct = implied.serviceRate * 100;
+        taxPctVal = implied.taxRate * 100;
+      }
+      if (existing.discount_percent != null) discPct = Number(existing.discount_percent) || 0;
+    }
+
+    const {
+      subtotal,
+      serviceChargeAmount,
+      taxAmount,
+      grandTotalBeforeDiscount,
+    } = computeBillTotalsFromClearedKots(clearedKots, servicePct, taxPctVal);
+    const { finalTotal } = applyDiscountPercent(grandTotalBeforeDiscount, discPct);
+    const now = new Date().toISOString();
+    const session = await tableSessionRepository.getActiveByTable(tableNumber);
+
+    const payload = {
+      session_id: session?.id || existing?.session_id || null,
+      table_number: tableNumber,
+      waiter_user_id: waiterUserId || existing?.waiter_user_id || null,
+      waiter_username: waiterUsername || existing?.waiter_username || null,
+      subtotal,
+      service_charge: serviceChargeAmount,
+      tax: taxAmount,
+      total: finalTotal,
+      discount_percent: discPct > 0 ? discPct : null,
+      discount_applied_by: discPct > 0 ? (waiterUserId || existing?.discount_applied_by || null) : null,
+      discount_applied_at: discPct > 0 ? now : null,
+      cleared_at: now,
+      printed: false,
+    };
+
+    let billId;
+    if (existing) {
+      billId = existing.id;
+      await billingRepository.updateBill(billId, payload);
+    } else {
+      billId = await billingRepository.createBill({
+        ...payload,
+        created_at: now,
+      });
+    }
+
+    await billingRepository.replaceBillItems(billId, buildBillItemRows(billId, clearedKots));
+
+    await auditService.log({
+      actor_user_id: waiterUserId,
+      action: 'finalize_bill_on_clear',
+      entity_type: 'bill',
+      entity_id: billId,
+      after_json: {
+        tableNumber,
+        total: finalTotal,
+        discountPercent: discPct || null,
+        waiterUsername: waiterUsername || null,
+      },
+    });
+
     return billId;
   },
 

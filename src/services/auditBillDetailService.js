@@ -333,3 +333,88 @@ export async function buildAuditBillDetail(billId) {
     },
   };
 }
+
+/**
+ * Manager Bills tab — bill finalized on Clear Table (stored bill_items only).
+ * Shows done + partial lines only; no removed_entirely / cancelled / OOS.
+ */
+export async function buildManagerBillDetail(billId) {
+  const bill = await billingRepository.getBillById(billId);
+  if (!bill) return { error: 'Bill not found.' };
+
+  const billItems = await billingRepository.getBillItems(billId);
+  const lines = [];
+  let billableSubtotal = 0;
+
+  for (const bi of billItems || []) {
+    if (bi.include_in_bill === false) continue;
+
+    const qty = Number(bi.qty) || 0;
+    const unit = Number(bi.unit_price) || 0;
+    const name = (bi.item_name && String(bi.item_name).trim()) || 'Unknown item';
+    const remQ = Number(bi.removed_qty) || 0;
+    const origQ = Number(bi.original_qty);
+    let kotLabel = '—';
+    const kid = bi.kot_item_id;
+    if (kid && typeof kid === 'string') {
+      const colon = kid.indexOf(':');
+      kotLabel = colon > 0 ? kotShort(kid.slice(0, colon)) : kotShort(kid);
+    }
+
+    const lineTotal = qty * unit;
+    if (remQ > 0 && Number.isFinite(origQ) && origQ > qty) {
+      lines.push({
+        kind: 'partial',
+        name,
+        qty,
+        originalQty: origQ,
+        unit,
+        lineTotal,
+        kotLabel,
+        managerName: null,
+      });
+    } else {
+      lines.push({
+        kind: 'served',
+        name,
+        qty,
+        originalQty: null,
+        unit,
+        lineTotal,
+        kotLabel,
+        managerName: null,
+      });
+    }
+    billableSubtotal += lineTotal;
+  }
+
+  const { serviceRate, taxRate } = ratesImpliedByBill(bill);
+  const {
+    serviceChargeAmount: serviceCharge,
+    taxAmount: tax,
+    grandTotalBeforeDiscount: preDiscount,
+  } = computeChargesFromSubtotal(billableSubtotal, serviceRate, taxRate);
+  const discPct = Number(bill.discount_percent) || 0;
+  const { finalTotal: grandTotal } = applyDiscountPercent(preDiscount, discPct);
+
+  return {
+    bill: {
+      id: bill.id,
+      shortId: kotShort(bill.id),
+      tableNumber: bill.table_number,
+      billStatus: null,
+      waiterUsername: bill.waiter_username,
+      discountAppliedByLabel: null,
+    },
+    lines,
+    totals: {
+      billableSubtotal: Number(bill.subtotal) || billableSubtotal,
+      removedAmount: 0,
+      serviceCharge: Number(bill.service_charge) || serviceCharge,
+      tax: Number(bill.tax) || tax,
+      discountPercent: discPct,
+      preDiscount: Number(bill.subtotal) + Number(bill.service_charge) + Number(bill.tax) || preDiscount,
+      grandTotal: Number(bill.total) || grandTotal,
+    },
+  };
+}

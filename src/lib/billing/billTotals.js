@@ -81,12 +81,20 @@ export function computeBillTotalsFromClearedKots(clearedKots, serviceChargePct, 
   return { ...out, billableLines };
 }
 
-/** Print / removal-modal: billable rows with qty = billed qty */
+/** Print / removal-modal: billable rows with qty = billed qty (one row per KOT line). */
 export function combinedConsumedItemsFromClearedKots(clearedKots) {
-  return billableLinesFromClearedKots(clearedKots).map(({ item, billQty }) => ({
-    ...item,
-    qty: billQty,
-  }));
+  const lines = [];
+  (clearedKots || []).forEach((kot) => {
+    const kotId = kot._docId || kot.id;
+    billableLinesFromClearedKots([kot]).forEach(({ item, billQty }) => {
+      lines.push({
+        ...item,
+        qty: billQty,
+        kotId,
+      });
+    });
+  });
+  return lines;
 }
 
 export function applyDiscountPercent(grandTotalBeforeDiscount, discountPct) {
