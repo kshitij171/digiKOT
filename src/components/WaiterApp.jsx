@@ -8,6 +8,7 @@ import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
 import { billingService } from '../services/billingService';
 import { billModificationService } from '../services/billModificationService';
+import { buildBillWhatsAppClickToChatUrl } from '../lib/whatsapp/buildWhatsAppClickToChatUrl';
 import './WaiterApp.css';
 import {
   computeBillTotalsFromClearedKots,
@@ -27,6 +28,44 @@ const CATEGORY_ORDER = [
   'Beverages — Non Alcoholic',
   'Beverages — Alcoholic',
 ];
+
+/** Phone digits only; display masked as asterisks (not stored). */
+function MaskedPhoneInput({ value, onChange, disabled, id }) {
+  const handleKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      onChange(value.slice(0, -1));
+      return;
+    }
+    if (/^\d$/.test(e.key) && value.length < 15) {
+      e.preventDefault();
+      onChange(value + e.key);
+    }
+  };
+  const handlePaste = (e) => {
+    if (disabled) return;
+    e.preventDefault();
+    const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '');
+    onChange((value + digits).slice(0, 15));
+  };
+  return (
+    <input
+      id={id}
+      type="text"
+      className="wa-modal-input wa-modal-input--masked"
+      readOnly
+      value={value.length ? '*'.repeat(value.length) : ''}
+      placeholder="10-digit mobile number"
+      onKeyDown={handleKeyDown}
+      onPaste={handlePaste}
+      disabled={disabled}
+      autoComplete="off"
+      inputMode="numeric"
+      aria-label="Customer phone number"
+    />
+  );
+}
 
 const CATEGORY_ICONS = {
   'Starters':                   '🥗',
@@ -211,6 +250,13 @@ function OrderPage() {
     };
   }, [showSummary, id]);
 
+  useEffect(() => {
+    if (!showSummary) {
+      setWaCustomerPhone('');
+      setWaMessage('');
+    }
+  }, [showSummary]);
+
   const {
     subtotal: consumedSubtotal,
     serviceChargeAmount: serviceChargeAmt,
@@ -243,6 +289,10 @@ function OrderPage() {
 
   // ── Discount state ────────────────────────────────────────
   const [discountPct, setDiscountPct] = useState(0);
+
+  // ── WhatsApp Click to Chat (phone not persisted) ──────────
+  const [waCustomerPhone, setWaCustomerPhone] = useState('');
+  const [waMessage, setWaMessage] = useState('');
 
   // ── Cancel rejection/approval toast tracker ───────────────
   const prevCancelReqsRef = useRef([]);
@@ -383,12 +433,54 @@ function OrderPage() {
     }
   };
 
-  const handlePrint = async () => {
+  const handlePrintPhysical = async () => {
     if (!hasConsumed) return;
     const err = await ensureBillExists();
     if (err) { alert(err); return; }
     window.print();
   };
+
+  const handleSendBillOnWhatsApp = async () => {
+    const phoneDigits = waCustomerPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 10) {
+      setWaMessage('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    setWaMessage('');
+    const err = await ensureBillExists();
+    if (err) {
+      alert(err);
+      return;
+    }
+
+    const finalTotal = grandTotal * (1 - discountPct / 100);
+    const billItems = combinedConsumedItems.map((item) => ({
+      name: item.name,
+      qty: item.qty,
+      lineTotal: item.qty * item.price,
+    }));
+
+    try {
+      const url = buildBillWhatsAppClickToChatUrl({
+        customerNumber: phoneDigits,
+        items: billItems,
+        subtotal: consumedSubtotal,
+        serviceCharge: serviceChargeAmt,
+        tax: taxAmt,
+        total: finalTotal,
+        dateTime: new Date(),
+      });
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setWaCustomerPhone('');
+      showToast('WhatsApp opened — tap send in the chat.');
+    } catch (e) {
+      console.error('WhatsApp Click to Chat error:', e);
+      setWaMessage(e.message || 'Could not open WhatsApp.');
+    }
+  };
+
+  const waPhoneReady = waCustomerPhone.replace(/\D/g, '').length >= 10;
 
   // ── Removal request ───────────────────────────────────────
 
@@ -598,14 +690,19 @@ function OrderPage() {
               Clear Table
             </button>
 
-            <button
-              className="topbar-action-btn primary"
-              disabled={!hasConsumed}
-              onClick={handlePrint}
-            >
-              🖨 Print Bill
-            </button>
           </div>
+
+          {hasConsumed && (
+            <div className="order-bill-bar">
+              <button
+                type="button"
+                className="order-bill-bar-btn"
+                onClick={handlePrintPhysical}
+              >
+                Print physical copy of the bill
+              </button>
+            </div>
+          )}
 
           {/* Full-width search bar — sits between topbar and menu grid */}
           <div className="menu-search-bar">
@@ -896,6 +993,32 @@ function OrderPage() {
                 <div className="billing-row grand-total-row">
                   <span>Grand Total</span>
                   <span>₹{(grandTotal * (1 - discountPct / 100)).toFixed(2)}</span>
+                </div>
+
+                <div className="summary-wa-block">
+                  <p className="wa-privacy-disclosure">
+                    We do not store any of your personal data.
+                  </p>
+                  <label className="wa-field-label" htmlFor="summary-wa-phone">
+                    Customer WhatsApp number <span className="wa-required">*</span>
+                  </label>
+                  <MaskedPhoneInput
+                    id="summary-wa-phone"
+                    value={waCustomerPhone}
+                    onChange={setWaCustomerPhone}
+                  />
+                  <p className="wa-field-hint">10-digit mobile (91 added automatically). Shown as asterisks only.</p>
+                  {waMessage && (
+                    <div className="wa-modal-feedback err">{waMessage}</div>
+                  )}
+                  <button
+                    type="button"
+                    className="summary-wa-send-btn"
+                    disabled={!waPhoneReady}
+                    onClick={handleSendBillOnWhatsApp}
+                  >
+                    Send Bill on WhatsApp
+                  </button>
                 </div>
               </div>
             )}
