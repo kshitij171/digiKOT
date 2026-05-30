@@ -1,3 +1,5 @@
+import { sha256Hex } from './sha256.js';
+
 export const ROLE_ROUTE_MAP = {
   waiter: '/waiter',
   kitchen_supervisor: '/kitchen',
@@ -14,18 +16,9 @@ export function validatePin(pin) {
   return /^\d{4}$/.test(String(pin || ''));
 }
 
+/** SHA-256 hex of PIN — identical on localhost and LAN (no secure-context requirement). */
 export async function hashPin(pin) {
-  const text = String(pin ?? '');
-  if (typeof crypto?.subtle !== 'undefined') {
-    const data = new TextEncoder().encode(text);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(digest))
-      .map((b) => b.toString(16).padStart(2, '0'))
-      .join('');
-  }
-  let hash = 0;
-  for (let i = 0; i < text.length; i += 1) hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
-  return `fallback_${hash.toString(16).padStart(8, '0')}`;
+  return sha256Hex(String(pin ?? ''));
 }
 
 export function getRouteForRole(role) {

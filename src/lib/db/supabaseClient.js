@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
+import { resolveSupabaseUrl } from './resolveSupabaseUrl.js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseUrl = resolveSupabaseUrl();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 const PLACEHOLDER_KEY =
@@ -8,9 +9,9 @@ const PLACEHOLDER_KEY =
   supabaseAnonKey.includes('<paste') ||
   supabaseAnonKey.includes('Publishable');
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseAnonKey) {
   console.error(
-    '[Supabase] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env. Run: npm run supabase:status'
+    '[Supabase] Missing VITE_SUPABASE_ANON_KEY in .env.local. Run: npm run supabase:status'
   );
 } else if (PLACEHOLDER_KEY) {
   console.error(
@@ -18,4 +19,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
   );
 }
 
-export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  console.info('[Supabase] API URL:', supabaseUrl);
+}
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey || '');
