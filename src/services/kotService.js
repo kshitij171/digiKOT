@@ -1,4 +1,5 @@
 import { kotRepository } from '../repositories/kotRepository';
+import { billingService } from './billingService';
 import { kotActionsRepository } from '../repositories/kotActionsRepository';
 import { tableService } from './tableService';
 import { menuService } from './menuService';
@@ -120,12 +121,15 @@ export const kotService = {
    * Returns { kots, total, page, pageSize }.
    */
   async listPastKots(supervisorId, page = 1, pageSize = 20) {
+    console.log('PAST KOTs QUERY — supervisorId:', supervisorId);
     const offset = (page - 1) * pageSize;
     const { rows, total } = await kotRepository.listClearedBySupervisor(supervisorId, {
       offset,
       limit: pageSize,
     });
-    return { kots: rows.map(mapKot), total, page, pageSize };
+    const result = { kots: rows.map(mapKot), total, page, pageSize };
+    console.log('PAST KOTs RESULT:', JSON.stringify(result, null, 2));
+    return result;
   },
 
   async listCancelledKots({ fromDate, toDate } = {}) {
@@ -181,7 +185,7 @@ export const kotService = {
     const kot = await kotRepository.getById(kotId);
 
     // First-touch ownership: tag this KOT with the supervisor who acted first
-    if (supervisorId && !kot?.supervisor_id) {
+    if (supervisorId) {
       await kotRepository.assignSupervisor(kotId, supervisorId, supervisorName || null).catch((e) =>
         console.warn('assignSupervisor failed:', e)
       );
@@ -209,7 +213,22 @@ export const kotService = {
     });
   },
 
-  async clearTable(tableNumber, actorUserId) {
+  async clearTable(tableNumber, actorUserId, options = {}) {
+    const rows = await kotRepository.listByTable(tableNumber);
+    const clearedKots = rows.filter((r) => r.status === 'cleared').map(mapKot);
+
+    if (clearedKots.length > 0) {
+      await billingService.finalizeBillOnClearTable({
+        tableNumber,
+        waiterUserId: options.waiterUserId ?? actorUserId ?? null,
+        waiterUsername: options.waiterUsername ?? null,
+        clearedKots,
+        serviceChargePct: options.serviceChargePct ?? 5,
+        taxPct: options.taxPct ?? 18,
+        discountPercent: options.discountPercent ?? 0,
+      });
+    }
+
     await kotRepository.deleteClearedByTable(tableNumber);
     await tableService.clearTable(tableNumber);
     await auditService.log({

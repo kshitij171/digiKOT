@@ -31,11 +31,18 @@ export default function PastKotsOverlay({ supervisorId, onClose }) {
   const [error, setError] = useState(null);
 
   const load = useCallback(async (p) => {
-    if (!supervisorId) return;
+    console.log('PAST KOTs QUERY — supervisorId:', supervisorId);
+    if (!supervisorId) {
+      setKots([]);
+      setTotal(0);
+      setError('Supervisor session not found. Log out and sign in again with your PIN.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const result = await kotService.listPastKots(supervisorId, p, PAGE_SIZE);
+      console.log('PAST KOTs RESULT:', JSON.stringify(result, null, 2));
       setKots(result.kots);
       setTotal(result.total);
     } catch (e) {
@@ -46,9 +53,15 @@ export default function PastKotsOverlay({ supervisorId, onClose }) {
     }
   }, [supervisorId]);
 
+  // One-time fetch when overlay opens; pagination refetches only on page change
   useEffect(() => {
-    load(page);
-  }, [load, page]);
+    load(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supervisorId]);
+
+  useEffect(() => {
+    if (page > 1) load(page);
+  }, [page, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const rangeStart = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;

@@ -1,12 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { auditService } from '../services/auditService';
 import { managerService } from '../services/managerService';
 import { billingService } from '../services/billingService';
 import { billModificationService } from '../services/billModificationService';
 import { menuService } from '../services/menuService';
-import AuditFeedTab from './AuditFeedTab';
+import CancelledKotsTab from './CancelledKotsTab';
 import AuditBillDetailPanel from './AuditBillDetailPanel';
-import { buildAuditBillDetail } from '../services/auditBillDetailService';
+import { buildManagerBillDetail } from '../services/auditBillDetailService';
 import { useAuth } from '../context/AuthContext';
 import { validatePin } from '../lib/utils/auth';
 import './ManagerApp.css';
@@ -23,6 +23,76 @@ function shortId(id) { return id ? '#' + String(id).slice(-6).toUpperCase() : '�
 function todayStr() { return new Date().toISOString().slice(0, 10); }
 function toFrom(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').toISOString() : null; }
 function toTo(dateStr) { return dateStr ? new Date(dateStr + 'T23:59:59').toISOString() : null; }
+
+/** Removal discount % from bill_items (manager-approved removals, not waiter % discount). */
+function computeRemovalDiscountPct(bill) {
+  const items = bill.bill_items || [];
+  let originalSubtotal = 0;
+  let removedAmount = 0;
+
+  for (const bi of items) {
+    const unit = Number(bi.unit_price) || 0;
+    const included = bi.include_in_bill !== false;
+    const excl = bi.exclusion_reason;
+
+    if (!included) {
+      if (excl === 'removed_entirely') {
+        const origQ = Number(bi.original_qty) || Number(bi.qty) || 0;
+        originalSubtotal += origQ * unit;
+        removedAmount += origQ * unit;
+      }
+      continue;
+    }
+
+    const remQ = Number(bi.removed_qty) || 0;
+    const billQ = Number(bi.qty) || 0;
+    if (remQ > 0) {
+      let origQ = Number(bi.original_qty);
+      if (!Number.isFinite(origQ) || origQ < billQ + remQ) {
+        origQ = billQ + remQ;
+      }
+      originalSubtotal += origQ * unit;
+      removedAmount += remQ * unit;
+    } else if (billQ > 0) {
+      originalSubtotal += billQ * unit;
+    }
+  }
+
+  if (originalSubtotal <= 0) {
+    return removedAmount > 0 ? 100 : 0;
+  }
+  const pct = (removedAmount / originalSubtotal) * 100;
+  return Math.min(100, Math.round(pct * 100) / 100);
+}
+
+function matchesRemovalDiscountFilter(pct, filter) {
+  if (filter === 'gte50') return pct >= 50;
+  if (filter === 'eq100') return pct >= 99.995;
+  return true;
+}
+
+/** Row badges: waiter % discount (matches expanded bill) vs removal % (items taken off). */
+function billDiscountBadges(bill, removalDiscountPct) {
+  const waiterPct = Number(bill.discount_percent) || 0;
+  const removalPct = Number(removalDiscountPct) || 0;
+  const badges = [];
+
+  if (waiterPct > 0) {
+    badges.push({
+      key: 'waiter',
+      label: `${Math.round(waiterPct)}% discount`,
+      high: waiterPct >= 50,
+    });
+  }
+  if (removalPct > 0 && Math.round(removalPct) !== Math.round(waiterPct)) {
+    badges.push({
+      key: 'removal',
+      label: `${Math.round(removalPct)}% removed`,
+      high: removalPct >= 50,
+    });
+  }
+  return badges;
+}
 
 // ── MODIFICATIONS TAB ─────────────────────────────────────
 function ModificationsTab({ currentUser }) {
@@ -727,12 +797,25 @@ function BillsTab() {
   const today = new Date().toISOString().slice(0, 10);
   const [dates, setDates] = useState({ from: today, to: today });
   const [search, setSearch] = useState('');
+  const [discountFilter, setDiscountFilter] = useState('all');
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(null);
   const [billAuditCache, setBillAuditCache] = useState({});
   const [billAuditLoading, setBillAuditLoading] = useState(null);
+
+  const billsWithRemovalDiscount = useMemo(
+    () => bills.map((b) => ({ bill: b, removalDiscountPct: computeRemovalDiscountPct(b) })),
+    [bills]
+  );
+
+  const displayedBills = useMemo(
+    () => billsWithRemovalDiscount.filter(({ removalDiscountPct }) =>
+      matchesRemovalDiscountFilter(removalDiscountPct, discountFilter)
+    ),
+    [billsWithRemovalDiscount, discountFilter]
+  );
 
   const load = async () => {
     setLoading(true);
@@ -760,7 +843,7 @@ function BillsTab() {
     if (!billAuditCache[billId]) {
       setBillAuditLoading(billId);
       try {
-        const auditBill = await buildAuditBillDetail(billId);
+        const auditBill = await buildManagerBillDetail(billId);
         setBillAuditCache((c) => ({ ...c, [billId]: auditBill }));
       } catch (e) {
         console.warn(e);
@@ -773,13 +856,6 @@ function BillsTab() {
   const handleSearch = (e) => {
     e.preventDefault();
     load();
-  };
-
-  const STATUS_COLOR = {
-    printed: '#60a5fa',
-    void: '#f87171',
-    resettled: '#34d399',
-    open: '#fbbf24',
   };
 
   return (
@@ -806,6 +882,19 @@ function BillsTab() {
             Search
           </button>
         </form>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Filter by discount</label>
+          <select
+            className="audit-date-input"
+            value={discountFilter}
+            onChange={(e) => setDiscountFilter(e.target.value)}
+            style={{ minWidth: 168, cursor: 'pointer' }}
+          >
+            <option value="all">All bills</option>
+            <option value="gte50">Discount ≥ 50%</option>
+            <option value="eq100">Discount = 100%</option>
+          </select>
+        </div>
       </div>
 
       {loading ? (
@@ -814,6 +903,8 @@ function BillsTab() {
         <p className="audit-error">{error}</p>
       ) : bills.length === 0 ? (
         <p className="audit-empty">No bills found for this date range.</p>
+      ) : displayedBills.length === 0 ? (
+        <p className="audit-empty">No bills match this discount filter.</p>
       ) : (
         <div style={{ overflowX: 'auto' }}>
           <table className="audit-table">
@@ -824,50 +915,56 @@ function BillsTab() {
                 <th>Waiter</th>
                 <th>Items</th>
                 <th>Subtotal</th>
-                <th>Discount</th>
-                <th>Total</th>
-                <th>Status</th>
-                <th>Time</th>
+                <th>Grand total</th>
+                <th>Cleared at</th>
               </tr>
             </thead>
             <tbody>
-              {bills.map((b) => {
+              {displayedBills.map(({ bill: b, removalDiscountPct }) => {
                 const isExpanded = expanded === b.id;
                 const items = b.bill_items || [];
-                const includedItems = items.filter(i => i.include_in_bill);
+                const includedItems = items.filter(i => i.include_in_bill !== false);
                 const auditBill = billAuditCache[b.id];
                 const auditLoading = billAuditLoading === b.id;
+                const discountBadges = billDiscountBadges(b, removalDiscountPct);
                 return (
                   <React.Fragment key={b.id}>
                     <tr
                       style={{ cursor: 'pointer' }}
                       onClick={() => toggleBillRow(b.id)}
                     >
-                      <td><span className="mono">{shortId(b.id)}</span></td>
+                      <td>
+                        <span className="mono">{shortId(b.id)}</span>
+                        {discountBadges.map((badge) => (
+                          <span
+                            key={badge.key}
+                            style={{
+                              display: 'inline-block',
+                              marginLeft: '0.45rem',
+                              padding: '0.1rem 0.4rem',
+                              borderRadius: 4,
+                              fontSize: '0.68rem',
+                              fontWeight: 600,
+                              background: badge.high ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                              color: badge.high ? '#f87171' : '#fbbf24',
+                              border: `1px solid ${badge.high ? 'rgba(239, 68, 68, 0.35)' : 'rgba(245, 158, 11, 0.35)'}`,
+                              verticalAlign: 'middle',
+                            }}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </td>
                       <td>Table {b.table_number}</td>
                       <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
                       <td>{includedItems.length}</td>
                       <td>{fmtAmt(b.subtotal)}</td>
-                      <td>
-                        {b.discount_percent ? (
-                          <span style={{ color: '#fbbf24', fontWeight: 700 }}>{b.discount_percent}%</span>
-                        ) : '—'}
-                      </td>
                       <td style={{ fontWeight: 700 }}>{fmtAmt(b.total)}</td>
-                      <td>
-                        <span style={{
-                          fontSize: '0.72rem', fontWeight: 700, padding: '0.15rem 0.45rem', borderRadius: 4,
-                          background: 'rgba(255,255,255,0.06)',
-                          color: STATUS_COLOR[b.bill_status] || '#94a3b8',
-                        }}>
-                          {b.bill_status || '—'}
-                        </span>
-                      </td>
-                      <td style={{ whiteSpace: 'nowrap', color: '#64748b' }}>{fmtDate(b.created_at)}</td>
+                      <td style={{ whiteSpace: 'nowrap', color: '#64748b' }}>{fmtDate(b.cleared_at)}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={9} style={{ padding: '0.75rem 1rem', background: '#0f172a', verticalAlign: 'top' }}>
+                        <td colSpan={7} style={{ padding: '0.75rem 1rem', background: '#0f172a', verticalAlign: 'top' }}>
                           {auditLoading && (
                             <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Loading annotated bill…</span>
                           )}
@@ -1104,7 +1201,7 @@ export default function ManagerApp() {
 
   const tabs = [
     { id: 'modifications', label: 'Modifications', badge: pendingCount },
-    { id: 'audit',         label: 'Audit Feed' },
+    { id: 'cancelled-kots', label: 'Cancelled KOTs' },
     { id: 'bills',         label: 'Bills' },
     { id: 'inventory',     label: 'Inventory' },
     { id: 'staff',         label: 'Staff' },
@@ -1145,7 +1242,9 @@ export default function ManagerApp() {
 
       <div className="mgr-content">
         {activeTab === 'modifications' && <ModificationsTab currentUser={currentUser} />}
-        {activeTab === 'audit'         && <AuditFeedTab />}
+        <div className="mgr-tab-panel" hidden={activeTab !== 'cancelled-kots'}>
+          <CancelledKotsTab active={activeTab === 'cancelled-kots'} />
+        </div>
         {activeTab === 'bills'         && <BillsTab />}
         {activeTab === 'inventory'     && <InventoryTab />}
         {activeTab === 'staff'         && <StaffTab currentUser={currentUser} />}

@@ -92,24 +92,29 @@ export const kotRepository = {
    * Returns { rows, total } — rows already have items attached.
    */
   async listClearedBySupervisor(supervisorId, { offset = 0, limit = 20 } = {}) {
-    const base = supabase
+    if (!supervisorId) {
+      return { rows: [], total: 0 };
+    }
+
+    const { count, error: countError } = await supabase
       .from('kots')
+      .select('*', { count: 'exact', head: true })
       .eq('status', 'cleared')
       .eq('supervisor_id', supervisorId);
 
-    const { count } = await base.select('*', { count: 'exact', head: true });
+    if (countError) throw countError;
 
     const { data, error } = await supabase
       .from('kots')
       .select('*')
       .eq('status', 'cleared')
       .eq('supervisor_id', supervisorId)
-      .order('cleared_at', { ascending: false })
+      .order('cleared_at', { ascending: false, nullsFirst: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
     const rows = await attachItems(data || []);
-    return { rows, total: count || 0 };
+    return { rows, total: count ?? 0 };
   },
 
   async listCancelled({ fromDate, toDate } = {}) {

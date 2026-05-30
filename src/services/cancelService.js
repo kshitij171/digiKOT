@@ -7,9 +7,47 @@ import { notificationService } from './notificationService';
 import { auditService } from './auditService';
 import { createSubscriptionController } from './subscriptionController';
 
+function userDisplayLabel(user) {
+  if (!user) return '—';
+  if (user.name && String(user.name).trim()) return user.name.trim();
+  if (user.username) return `@${user.username}`;
+  return '—';
+}
+
 export const cancelService = {
   async listByTable(tableNumber) {
     return cancelRepository.listByTable(tableNumber);
+  },
+
+  /** One-time load for manager Cancelled KOTs tab (no realtime). */
+  async listAllCancellationRequests(limit = 500) {
+    const rows = await cancelRepository.listAll(limit);
+    const userIds = new Set();
+    for (const r of rows || []) {
+      if (r.waiter_user_id) userIds.add(r.waiter_user_id);
+      if (r.reviewed_by_user_id) userIds.add(r.reviewed_by_user_id);
+    }
+    const users = await Promise.all(
+      [...userIds].map((id) => userRepository.findById(id).catch(() => null))
+    );
+    const byId = {};
+    users.forEach((u) => {
+      if (u?.id) byId[u.id] = u;
+    });
+
+    return (rows || []).map((r) => ({
+      id: r.id,
+      tableNumber: r.table_number,
+      itemName: r.item_name,
+      qty: r.qty,
+      originalKotId: r.kot_id,
+      status: r.status,
+      reason: r.reason || '',
+      requestedAt: r.requested_at,
+      reviewedAt: r.reviewed_at,
+      waiterLabel: userDisplayLabel(byId[r.waiter_user_id]),
+      supervisorLabel: userDisplayLabel(byId[r.reviewed_by_user_id]),
+    }));
   },
 
   subscribeByTable(tableNumber, onData) {

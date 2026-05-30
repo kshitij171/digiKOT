@@ -78,7 +78,7 @@ create table if not exists kot_items (
 
 create table if not exists cancel_requests (
   id text primary key,
-  kot_id text not null references kots(id) on delete cascade,
+  kot_id text null,
   kot_item_id text not null,
   table_number integer not null,
   waiter_user_id text null references users(id),

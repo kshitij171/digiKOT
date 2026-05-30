@@ -4,3 +4,4 @@ node_modules
 .env.network
 .cursor
 .pager-bridge-cursor.json
+tmp/
