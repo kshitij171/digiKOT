@@ -25,6 +25,15 @@ export const cancelRepository = {
     });
   },
 
+  /** All cancellation requests, newest first (manager Cancelled KOTs tab). */
+  async listAll(limit = 500) {
+    return dbAdapter.select('cancel_requests', {
+      orderBy: 'requested_at',
+      ascending: false,
+      limit,
+    });
+  },
+
   async create(payload) {
     return dbAdapter.insert('cancel_requests', {
       id: createId(),

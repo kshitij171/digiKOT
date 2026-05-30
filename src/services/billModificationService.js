@@ -7,10 +7,24 @@ import { notificationService } from './notificationService';
 import { realtimeAdapter } from '../realtime/realtimeAdapter';
 import { createSubscriptionController } from './subscriptionController';
 
-/** Locate printed bill line for a waiter removal row (match menu item id + name). */
+/** Locate printed bill line for a waiter removal row (KOT + menu item id). */
 function findBillLineForRemoval(billItems, itemToRemove) {
   const wantId = itemToRemove.itemId;
+  const wantKotId = itemToRemove.kotId;
   const wantName = itemToRemove.itemName ?? itemToRemove.name;
+
+  if (wantKotId) {
+    const byKot = billItems.find((bi) => {
+      if (!bi.kot_item_id || typeof bi.kot_item_id !== 'string') return false;
+      const colon = bi.kot_item_id.indexOf(':');
+      if (colon < 0) return false;
+      const kotId = bi.kot_item_id.slice(0, colon);
+      const menuId = bi.kot_item_id.slice(colon + 1);
+      return kotId === wantKotId && menuId === wantId;
+    });
+    if (byKot) return byKot;
+  }
+
   return billItems.find((bi) => {
     if (!bi.kot_item_id || typeof bi.kot_item_id !== 'string') return false;
     const colon = bi.kot_item_id.indexOf(':');
@@ -146,10 +160,8 @@ export const billModificationService = {
     }
 
     // ── STEP 3 — Void bill (do not delete): only issued bills ──
-    const VOIDABLE_STATUSES = new Set(['printed', 'generated']);
     const bill = await billingRepository.getBillById(req.bill_id);
-    const st = String(bill?.bill_status || '').toLowerCase();
-    if (bill && VOIDABLE_STATUSES.has(st)) {
+    if (bill && !bill.cleared_at && !bill.voided_at) {
       await billingRepository.voidBill(req.bill_id, {
         voidedBy: managerUserId,
         voidReason: 'manager_approved_removal',

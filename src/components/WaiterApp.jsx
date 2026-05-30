@@ -8,6 +8,7 @@ import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
 import { billingService } from '../services/billingService';
 import { billModificationService } from '../services/billModificationService';
+import { buildBillWhatsAppClickToChatUrl } from '../lib/whatsapp/buildWhatsAppClickToChatUrl';
 import './WaiterApp.css';
 import {
   computeBillTotalsFromClearedKots,
@@ -27,6 +28,44 @@ const CATEGORY_ORDER = [
   'Beverages — Non Alcoholic',
   'Beverages — Alcoholic',
 ];
+
+/** Phone digits only; display masked as asterisks (not stored). */
+function MaskedPhoneInput({ value, onChange, disabled, id }) {
+  const handleKeyDown = (e) => {
+    if (disabled) return;
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      onChange(value.slice(0, -1));
+      return;
+    }
+    if (/^\d$/.test(e.key) && value.length < 15) {
+      e.preventDefault();
+      onChange(value + e.key);
+    }
+  };
+  const handlePaste = (e) => {
+    if (disabled) return;
+    e.preventDefault();
+    const digits = (e.clipboardData.getData('text') || '').replace(/\D/g, '');
+    onChange((value + digits).slice(0, 15));
+  };
+  return (
+    <input
+      id={id}
+      type="text"
+      className="wa-modal-input wa-modal-input--masked"
+      readOnly
+      value={value.length ? '*'.repeat(value.length) : ''}
+      placeholder="10-digit mobile number"
+      onKeyDown={handleKeyDown}
+      onPaste={handlePaste}
+      disabled={disabled}
+      autoComplete="off"
+      inputMode="numeric"
+      aria-label="Customer phone number"
+    />
+  );
+}
 
 const CATEGORY_ICONS = {
   'Starters':                   '🥗',
@@ -211,6 +250,13 @@ function OrderPage() {
     };
   }, [showSummary, id]);
 
+  useEffect(() => {
+    if (!showSummary) {
+      setWaCustomerPhone('');
+      setWaMessage('');
+    }
+  }, [showSummary]);
+
   const {
     subtotal: consumedSubtotal,
     serviceChargeAmount: serviceChargeAmt,
@@ -243,6 +289,10 @@ function OrderPage() {
 
   // ── Discount state ────────────────────────────────────────
   const [discountPct, setDiscountPct] = useState(0);
+
+  // ── WhatsApp Click to Chat (phone not persisted) ──────────
+  const [waCustomerPhone, setWaCustomerPhone] = useState('');
+  const [waMessage, setWaMessage] = useState('');
 
   // ── Cancel rejection/approval toast tracker ───────────────
   const prevCancelReqsRef = useRef([]);
@@ -346,7 +396,7 @@ function OrderPage() {
       // The bill may have been voided by a manager approval — re-check before reusing.
       try {
         const existing = await billingService.getBillById(lastBillId);
-        if (!existing || existing.bill_status === 'void') {
+        if (!existing || existing.voided_at) {
           setLastBillId(null);
           // Fall through to create a fresh bill
         } else {
@@ -383,12 +433,54 @@ function OrderPage() {
     }
   };
 
-  const handlePrint = async () => {
+  const handlePrintPhysical = async () => {
     if (!hasConsumed) return;
     const err = await ensureBillExists();
     if (err) { alert(err); return; }
     window.print();
   };
+
+  const handleSendBillOnWhatsApp = async () => {
+    const phoneDigits = waCustomerPhone.replace(/\D/g, '');
+    if (phoneDigits.length < 10) {
+      setWaMessage('Please enter a valid 10-digit mobile number.');
+      return;
+    }
+
+    setWaMessage('');
+    const err = await ensureBillExists();
+    if (err) {
+      alert(err);
+      return;
+    }
+
+    const finalTotal = grandTotal * (1 - discountPct / 100);
+    const billItems = combinedConsumedItems.map((item) => ({
+      name: item.name,
+      qty: item.qty,
+      lineTotal: item.qty * item.price,
+    }));
+
+    try {
+      const url = buildBillWhatsAppClickToChatUrl({
+        customerNumber: phoneDigits,
+        items: billItems,
+        subtotal: consumedSubtotal,
+        serviceCharge: serviceChargeAmt,
+        tax: taxAmt,
+        total: finalTotal,
+        dateTime: new Date(),
+      });
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setWaCustomerPhone('');
+      showToast('WhatsApp opened — tap send in the chat.');
+    } catch (e) {
+      console.error('WhatsApp Click to Chat error:', e);
+      setWaMessage(e.message || 'Could not open WhatsApp.');
+    }
+  };
+
+  const waPhoneReady = waCustomerPhone.replace(/\D/g, '').length >= 10;
 
   // ── Removal request ───────────────────────────────────────
 
@@ -396,19 +488,20 @@ function OrderPage() {
    * Build the expanded selection list: each consumed item is split into
    * individual unit rows (qty × 1) so the waiter can remove partial quantities.
    */
-  const buildRemovalSelections = () =>
-    // Only expand items still fully `done` — partially/fully removed ones
-    // can't be removed again.
-    combinedConsumedItems
-      .filter(item => item.status === 'done')
-      .flatMap((item) =>
-        Array.from({ length: item.qty }, (_, u) => ({
-          ...item,
-          qty: 1,
-          _key: `${item.itemId}_${u}`,
-          selected: false,
-        }))
-      );
+  const buildRemovalSelections = () => {
+    const consumedItems = combinedConsumedItems.filter((item) => item.status === 'done');
+    console.log('REMOVAL OVERLAY ITEMS:', JSON.stringify(consumedItems, null, 2));
+    return consumedItems.flatMap((item, rowIndex) =>
+      Array.from({ length: item.qty }, (_, u) => ({
+        ...item,
+        kotId: item.kotId,
+        itemId: item.itemId,
+        qty: 1,
+        _key: `${item.kotId}_${item.itemId}_${rowIndex}_${u}`,
+        selected: false,
+      }))
+    );
+  };
 
   const openRemovalModal = async () => {
     if (!hasConsumed) return;
@@ -428,13 +521,16 @@ function OrderPage() {
     if (selected.length === 0) { setRemovalMessage('Select at least one item.'); return; }
     if (!removalReason.trim()) { setRemovalMessage('A reason is required.'); return; }
 
-    // Re-group individual unit rows back into {itemId, itemName, qty} entries.
-    const byItem = {};
-    selected.forEach(({ itemId, name }) => {
-      if (!byItem[itemId]) byItem[itemId] = { itemId, itemName: name, qty: 0 };
-      byItem[itemId].qty += 1;
+    // Re-group unit rows by KOT + menu item (same name on different KOTs stay separate).
+    const byLine = {};
+    selected.forEach(({ kotId, itemId, name }) => {
+      const lineKey = `${kotId}_${itemId}`;
+      if (!byLine[lineKey]) {
+        byLine[lineKey] = { kotId, itemId, itemName: name, qty: 0 };
+      }
+      byLine[lineKey].qty += 1;
     });
-    const itemsToRemove = Object.values(byItem);
+    const itemsToRemove = Object.values(byLine);
 
     setRemovalSubmitting(true);
     try {
@@ -484,7 +580,13 @@ function OrderPage() {
     const ok = window.confirm(`Clear Table ${id}? This will end the session and cannot be undone.`);
     if (!ok) return;
     try {
-      await kotService.clearTable(parseInt(id), currentUser?.id || null);
+      await kotService.clearTable(parseInt(id), currentUser?.id || null, {
+        waiterUserId: currentUser?.id || null,
+        waiterUsername: currentUser?.username || null,
+        serviceChargePct,
+        taxPct,
+        discountPercent: discountPct,
+      });
       localStorage.removeItem(CART_KEY);
     } catch (err) {
       console.error('Clear table error:', err);
@@ -588,14 +690,19 @@ function OrderPage() {
               Clear Table
             </button>
 
-            <button
-              className="topbar-action-btn primary"
-              disabled={!hasConsumed}
-              onClick={handlePrint}
-            >
-              🖨 Print Bill
-            </button>
           </div>
+
+          {hasConsumed && (
+            <div className="order-bill-bar">
+              <button
+                type="button"
+                className="order-bill-bar-btn"
+                onClick={handlePrintPhysical}
+              >
+                Print physical copy of the bill
+              </button>
+            </div>
+          )}
 
           {/* Full-width search bar — sits between topbar and menu grid */}
           <div className="menu-search-bar">
@@ -787,26 +894,6 @@ function OrderPage() {
                 )}
               </div>
 
-              {(billModRequests.some((r) => r.status === 'rejected') ||
-                billModRequests.some((r) => r.status === 'pending')) && (
-                <div className="summary-section">
-                  <h4 className="summary-section-title">Bill removal</h4>
-                  {billModRequests.some((r) => r.status === 'pending') && (
-                    <div className="bill-mod-pending-banner">Awaiting manager decision on your removal request…</div>
-                  )}
-                  {billModRequests
-                    .filter((r) => r.status === 'rejected')
-                    .map((r) => (
-                      <div key={r.id} className="bill-mod-reject-banner">
-                        <div className="bill-mod-reject-main">
-                          ↳ Rejected — {r.rejection_reason?.trim() || 'No reason provided'}
-                        </div>
-                        <div className="bill-mod-reject-hint">(You may submit a new removal request)</div>
-                      </div>
-                    ))}
-                </div>
-              )}
-
               <div className="summary-section">
                 <h4 className="summary-section-title">Consumed</h4>
                 {clearedKots.length === 0 ? (
@@ -907,6 +994,32 @@ function OrderPage() {
                   <span>Grand Total</span>
                   <span>₹{(grandTotal * (1 - discountPct / 100)).toFixed(2)}</span>
                 </div>
+
+                <div className="summary-wa-block">
+                  <p className="wa-privacy-disclosure">
+                    We do not store any of your personal data.
+                  </p>
+                  <label className="wa-field-label" htmlFor="summary-wa-phone">
+                    Customer WhatsApp number <span className="wa-required">*</span>
+                  </label>
+                  <MaskedPhoneInput
+                    id="summary-wa-phone"
+                    value={waCustomerPhone}
+                    onChange={setWaCustomerPhone}
+                  />
+                  <p className="wa-field-hint">10-digit mobile (91 added automatically). Shown as asterisks only.</p>
+                  {waMessage && (
+                    <div className="wa-modal-feedback err">{waMessage}</div>
+                  )}
+                  <button
+                    type="button"
+                    className="summary-wa-send-btn"
+                    disabled={!waPhoneReady}
+                    onClick={handleSendBillOnWhatsApp}
+                  >
+                    Send Bill on WhatsApp
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -925,9 +1038,9 @@ function OrderPage() {
               <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>
                 Select items to remove. Bill is <strong>not</strong> changed until the manager approves.
               </p>
-              {removalSelections.map(item => (
+              {removalSelections.map((item, index) => (
                 <label
-                  key={item._key}
+                  key={`${item.kotId}_${item.itemId}_${index}`}
                   style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
                 >
                   <input
@@ -936,7 +1049,14 @@ function OrderPage() {
                     onChange={() => toggleRemovalItem(item._key)}
                     style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
                   />
-                  <span style={{ flex: 1, fontSize: '0.85rem' }}>{item.name} ×1</span>
+                  <span style={{ flex: 1, fontSize: '0.85rem' }}>
+                    {item.name} ×1
+                    {item.kotId && (
+                      <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
+                        (KOT #{(String(item.kotId)).slice(-4).toUpperCase()})
+                      </span>
+                    )}
+                  </span>
                   <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
                 </label>
               ))}

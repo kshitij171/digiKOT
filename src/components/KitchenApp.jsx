@@ -8,6 +8,9 @@ import './KitchenApp.css';
 
 export default function KitchenApp() {
   const { currentUser, supervisorId, supervisorName } = useAuth();
+  const effectiveSupervisorId =
+    supervisorId ||
+    (currentUser?.role === 'kitchen_supervisor' ? currentUser.id : null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [kots, setKots] = useState([]);
   const [pendingActions, setPendingActions] = useState({});
@@ -47,7 +50,7 @@ export default function KitchenApp() {
         itemId,
         status: newStatus,
         kitchenUserId: currentUser?.id || null,
-        supervisorId: supervisorId || null,
+        supervisorId: effectiveSupervisorId || null,
         supervisorName: supervisorName || null,
       });
     } catch (err) {
@@ -101,7 +104,7 @@ export default function KitchenApp() {
         request: req,
         reviewerUserId: currentUser?.id || null,
         approve: isApprove,
-        supervisorId: supervisorId || null,
+        supervisorId: effectiveSupervisorId || null,
         supervisorName: supervisorName || null,
       });
     } catch (e) {
@@ -137,7 +140,7 @@ export default function KitchenApp() {
           </div>
         </div>
         <div className="kitchen-header-right">
-          {supervisorId && (
+          {effectiveSupervisorId && (
             <button className="btn-past-kots" onClick={() => setShowPastKots(true)}>
               📋 Past KOTs
             </button>
@@ -148,8 +151,11 @@ export default function KitchenApp() {
         </div>
       </div>
 
-      {showPastKots && supervisorId && (
-        <PastKotsOverlay supervisorId={supervisorId} onClose={() => setShowPastKots(false)} />
+      {showPastKots && effectiveSupervisorId && (
+        <PastKotsOverlay
+          supervisorId={effectiveSupervisorId}
+          onClose={() => setShowPastKots(false)}
+        />
       )}
 
       {activeTab === 'live' && (

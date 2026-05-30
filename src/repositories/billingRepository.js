@@ -24,17 +24,62 @@ export const billingRepository = {
     await dbAdapter.insert('bill_items', items.map((item) => ({ id: createId(), ...item })));
   },
 
-  async listBills({ fromDate, toDate, search } = {}) {
-    let q = supabase.from('bills').select('*, bill_items(*)');
-    if (fromDate) q = q.gte('created_at', fromDate);
-    if (toDate) q = q.lte('created_at', toDate);
+  /** Manager Bills tab: one row per Clear Table (cleared_at set). */
+  async listClearedBills({ fromDate, toDate, search } = {}) {
+    let q = supabase.from('bills').select('*, bill_items(*)').not('cleared_at', 'is', null);
+    if (fromDate) q = q.gte('cleared_at', fromDate);
+    if (toDate) q = q.lte('cleared_at', toDate);
     if (search) {
       const s = search.trim();
       if (s) q = q.or(`waiter_username.ilike.%${s}%,id.ilike.%${s}%`);
     }
-    const { data, error } = await q.order('created_at', { ascending: false }).limit(500);
+    const { data, error } = await q.order('cleared_at', { ascending: false }).limit(500);
     if (error) throw error;
     return data || [];
+  },
+
+  async listBills({ fromDate, toDate, search } = {}) {
+    return this.listClearedBills({ fromDate, toDate, search });
+  },
+
+  /** Latest draft bill for table (print / removal — not yet cleared). */
+  async getLatestDraftBillForTable(tableNumber) {
+    const { data, error } = await supabase
+      .from('bills')
+      .select('*')
+      .eq('table_number', tableNumber)
+      .is('cleared_at', null)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+
+  async getLatestClearedBillForTable(tableNumber) {
+    const { data, error } = await supabase
+      .from('bills')
+      .select('*')
+      .eq('table_number', tableNumber)
+      .not('cleared_at', 'is', null)
+      .order('cleared_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+
+  async updateBill(billId, payload) {
+    return dbAdapter.update('bills', payload, [{ column: 'id', value: billId }]);
+  },
+
+  async deleteBillItemsForBill(billId) {
+    return dbAdapter.delete('bill_items', [{ column: 'bill_id', value: billId }]);
+  },
+
+  async replaceBillItems(billId, items) {
+    await this.deleteBillItemsForBill(billId);
+    if (items.length) await this.createBillItems(items);
   },
 
   async listRecent(limit = 30) {
@@ -79,7 +124,6 @@ export const billingRepository = {
     return dbAdapter.update(
       'bills',
       {
-        bill_status: 'void',
         voided_by: voidedBy || null,
         voided_at: new Date().toISOString(),
         void_reason: voidReason || null,

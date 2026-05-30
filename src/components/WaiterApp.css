@@ -410,6 +410,203 @@
 .topbar-action-btn.warn:hover { background: rgba(217,119,6,0.1); }
 .topbar-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+/* ── Bill actions (WhatsApp + print) ─────────────────────── */
+.order-bill-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  padding: 0.45rem 1rem;
+  background: var(--bg-off);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.order-bill-bar-btn {
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  background: var(--bg-white);
+  color: var(--text-secondary);
+  transition: all var(--t-fast);
+  white-space: nowrap;
+}
+
+.order-bill-bar-btn:hover {
+  background: var(--bg-off);
+  color: var(--text-primary);
+}
+
+.order-bill-bar-btn--whatsapp {
+  background: #25d366;
+  border-color: #1da851;
+  color: #fff;
+}
+
+.order-bill-bar-btn--whatsapp:hover {
+  background: #1ebe57;
+  color: #fff;
+}
+
+.order-bill-bar-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* WhatsApp customer modal */
+.wa-bill-modal {
+  max-width: 420px;
+}
+
+.wa-privacy-disclosure {
+  margin: 0 0 1rem;
+  padding: 0.55rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: rgba(45, 122, 79, 0.1);
+  border: 1px solid rgba(45, 122, 79, 0.25);
+  color: var(--success);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.wa-field-label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.3rem;
+}
+
+.wa-optional {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.wa-required {
+  color: var(--danger);
+}
+
+.wa-modal-input {
+  width: 100%;
+  padding: 0.55rem 0.65rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-off);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.88rem;
+  box-sizing: border-box;
+  margin-bottom: 0.85rem;
+}
+
+.wa-modal-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  background: var(--bg-white);
+}
+
+.wa-modal-input--masked {
+  letter-spacing: 0.12em;
+  font-family: ui-monospace, monospace;
+}
+
+.wa-field-hint {
+  margin: -0.55rem 0 0.75rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.wa-modal-feedback {
+  padding: 0.45rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.82rem;
+}
+
+.wa-modal-feedback.ok {
+  background: rgba(45, 122, 79, 0.12);
+  color: var(--success);
+}
+
+.wa-modal-feedback.err {
+  background: rgba(192, 57, 43, 0.1);
+  color: var(--danger);
+}
+
+.wa-modal-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  background: var(--bg-off);
+}
+
+.wa-btn-secondary,
+.wa-btn-primary {
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.wa-btn-secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.wa-btn-primary {
+  background: #25d366;
+  border: none;
+  color: #fff;
+}
+
+.wa-btn-primary:disabled,
+.wa-btn-secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.summary-wa-block {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px dashed var(--border);
+}
+
+.summary-wa-send-btn {
+  width: 100%;
+  margin-top: 0.65rem;
+  padding: 0.55rem 1rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: #25d366;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background var(--t-fast);
+}
+
+.summary-wa-send-btn:hover:not(:disabled) {
+  background: #1ebe57;
+}
+
+.summary-wa-send-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.summary-modal-footer .wa-modal-input {
+  margin-bottom: 0.35rem;
+}
+
 /* ── Menu Content Grid ──────────────────────────────────── */
 .menu-content {
   flex: 1;
