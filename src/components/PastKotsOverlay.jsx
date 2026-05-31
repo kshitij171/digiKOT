@@ -31,7 +31,6 @@ export default function PastKotsOverlay({ supervisorId, onClose }) {
   const [error, setError] = useState(null);
 
   const load = useCallback(async (p) => {
-    console.log('PAST KOTs QUERY — supervisorId:', supervisorId);
     if (!supervisorId) {
       setKots([]);
       setTotal(0);
@@ -42,12 +41,10 @@ export default function PastKotsOverlay({ supervisorId, onClose }) {
     setError(null);
     try {
       const result = await kotService.listPastKots(supervisorId, p, PAGE_SIZE);
-      console.log('PAST KOTs RESULT:', JSON.stringify(result, null, 2));
       setKots(result.kots);
       setTotal(result.total);
     } catch (e) {
       setError('Failed to load past KOTs. Please try again.');
-      console.error('PastKotsOverlay load error:', e);
     } finally {
       setLoading(false);
     }
@@ -124,8 +121,10 @@ export default function PastKotsOverlay({ supervisorId, onClose }) {
                     <ul className="phk-items">
                       {(kot.items || []).map((item, idx) => {
                         const isCancelled = item.status === 'cancelled';
+                        const stableKey =
+                          (kot?.id && item?.itemId != null) ? `${kot.id}:${item.itemId}` : `${kot?.id || 'kot'}:${idx}`;
                         return (
-                          <li key={`${item.itemId}-${idx}`} className={`phk-item ${isCancelled ? 'phk-item-cancelled' : ''}`}>
+                          <li key={stableKey} className={`phk-item ${isCancelled ? 'phk-item-cancelled' : ''}`}>
                             <span className="phk-item-name">{item.name}</span>
                             <span className="phk-item-qty">×{item.qty}</span>
                             <ItemBadge status={item.status} />

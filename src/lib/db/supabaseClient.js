@@ -8,14 +8,4 @@ const PLACEHOLDER_KEY =
   supabaseAnonKey.includes('<paste') ||
   supabaseAnonKey.includes('Publishable');
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error(
-    '[Supabase] Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in .env. Run: npm run supabase:status'
-  );
-} else if (PLACEHOLDER_KEY) {
-  console.error(
-    '[Supabase] VITE_SUPABASE_ANON_KEY is still a placeholder. Copy the Publishable key from: npm run supabase:status'
-  );
-}
-
 export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');

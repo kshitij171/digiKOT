@@ -48,7 +48,6 @@ const ProtectedRoute = ({ requiredRole } = {}) => {
         <div className="nav-links">
           <button
             className="nav-link"
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: '1rem', fontWeight: 500, color: '#ef4444' }}
             onClick={logoutUser}
           >
             Logout

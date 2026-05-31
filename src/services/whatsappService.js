@@ -65,38 +65,42 @@ function formFilePart(buffer, filename, mimeType) {
  * @returns {Promise<string>} media_id from Meta
  */
 export async function uploadMedia({ buffer, mimeType, filename, config: cfg }) {
-  const config = cfg ?? getWhatsAppConfig();
-  if (!buffer?.length) {
-    throw new Error('Cannot upload empty media file.');
+  try {
+    const config = cfg ?? getWhatsAppConfig();
+    if (!buffer?.length) {
+      throw new Error('Cannot upload empty media file.');
+    }
+
+    const form = new FormData();
+    form.append('messaging_product', 'whatsapp');
+    const filePart = formFilePart(buffer, filename, mimeType);
+    if (filePart instanceof Blob && !(filePart instanceof File)) {
+      form.append('file', filePart, filename);
+    } else {
+      form.append('file', filePart);
+    }
+
+    const res = await fetch(mediaUploadUrl(config), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.accessToken}` },
+      body: form,
+    });
+
+    const data = await res.json().catch(() => ({}));
+    const mediaId = data.id;
+
+    if (!res.ok || !mediaId) {
+      const detail =
+        data?.error?.message ||
+        data?.error?.error_user_msg ||
+        JSON.stringify(data?.error || data);
+      throw new Error(`WhatsApp Media Upload API failed (${res.status}): ${detail}`);
+    }
+
+    return mediaId;
+  } catch (err) {
+    throw err;
   }
-
-  const form = new FormData();
-  form.append('messaging_product', 'whatsapp');
-  const filePart = formFilePart(buffer, filename, mimeType);
-  if (filePart instanceof Blob && !(filePart instanceof File)) {
-    form.append('file', filePart, filename);
-  } else {
-    form.append('file', filePart);
-  }
-
-  const res = await fetch(mediaUploadUrl(config), {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${config.accessToken}` },
-    body: form,
-  });
-
-  const data = await res.json().catch(() => ({}));
-  const mediaId = data.id;
-
-  if (!res.ok || !mediaId) {
-    const detail =
-      data?.error?.message ||
-      data?.error?.error_user_msg ||
-      JSON.stringify(data?.error || data);
-    throw new Error(`WhatsApp Media Upload API failed (${res.status}): ${detail}`);
-  }
-
-  return mediaId;
 }
 
 /**
@@ -126,27 +130,31 @@ export function buildDocumentHeaderComponent(mediaId, filename) {
  * @param {Record<string, unknown>} params.body
  */
 async function graphRequest({ config: cfg, body }) {
-  const config = cfg ?? getWhatsAppConfig();
-  const res = await fetch(messagesUrl(config), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${config.accessToken}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
+  try {
+    const config = cfg ?? getWhatsAppConfig();
+    const res = await fetch(messagesUrl(config), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${config.accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
 
-  const data = await res.json().catch(() => ({}));
+    const data = await res.json().catch(() => ({}));
 
-  if (!res.ok) {
-    const detail =
-      data?.error?.message ||
-      data?.error?.error_user_msg ||
-      JSON.stringify(data?.error || data);
-    throw new Error(`WhatsApp API error (${res.status}): ${detail}`);
+    if (!res.ok) {
+      const detail =
+        data?.error?.message ||
+        data?.error?.error_user_msg ||
+        JSON.stringify(data?.error || data);
+      throw new Error(`WhatsApp API error (${res.status}): ${detail}`);
+    }
+
+    return data;
+  } catch (err) {
+    throw err;
   }
-
-  return data;
 }
 
 /**
@@ -159,59 +167,71 @@ export async function sendTemplateMessage({
   components,
   config,
 }) {
-  const cfg = config ?? getWhatsAppConfig();
-  const recipient = normalizeRecipientPhone(to);
-  const lang = languageCode ?? cfg.templateLanguage ?? DEFAULT_TEMPLATE_LANGUAGE;
+  try {
+    const cfg = config ?? getWhatsAppConfig();
+    const recipient = normalizeRecipientPhone(to);
+    const lang = languageCode ?? cfg.templateLanguage ?? DEFAULT_TEMPLATE_LANGUAGE;
 
-  const template = {
-    name: templateName,
-    language: { code: lang },
-  };
-  if (components?.length) {
-    template.components = components;
+    const template = {
+      name: templateName,
+      language: { code: lang },
+    };
+    if (components?.length) {
+      template.components = components;
+    }
+
+    return graphRequest({
+      config: cfg,
+      body: {
+        messaging_product: 'whatsapp',
+        to: recipient,
+        type: 'template',
+        template,
+      },
+    });
+  } catch (err) {
+    throw err;
   }
-
-  return graphRequest({
-    config: cfg,
-    body: {
-      messaging_product: 'whatsapp',
-      to: recipient,
-      type: 'template',
-      template,
-    },
-  });
 }
 
 /**
  * Send the configured "bill" template to a customer.
  */
 export async function sendBillTemplate({ to, components, languageCode, config }) {
-  const cfg = config ?? getWhatsAppConfig();
-  return sendTemplateMessage({
-    to,
-    templateName: cfg.billTemplateName,
-    languageCode: languageCode ?? cfg.templateLanguage,
-    components,
-    config: cfg,
-  });
+  try {
+    const cfg = config ?? getWhatsAppConfig();
+    return sendTemplateMessage({
+      to,
+      templateName: cfg.billTemplateName,
+      languageCode: languageCode ?? cfg.templateLanguage,
+      components,
+      config: cfg,
+    });
+  } catch (err) {
+    throw err;
+  }
 }
 
 /**
  * Send a plain text message (only within the 24-hour customer service window).
  */
 export async function sendTextMessage({ to, text, config }) {
-  const cfg = config ?? getWhatsAppConfig();
-  const recipient = normalizeRecipientPhone(to);
+  try {
+    const cfg = config ?? getWhatsAppConfig();
+    const recipient = normalizeRecipientPhone(to);
 
-  return graphRequest({
-    config: cfg,
-    body: {
-      messaging_product: 'whatsapp',
-      to: recipient,
-      type: 'text',
-      text: { body: String(text) },
-    },
-  });
+    return graphRequest({
+      config: cfg,
+      body: {
+        messaging_product: 'whatsapp',
+        to: recipient,
+        type: 'text',
+        text: { body: String(text) },
+      },
+    });
+  } catch (err) {
+    throw err;
+  }
 }
 
 export const whatsappService = {

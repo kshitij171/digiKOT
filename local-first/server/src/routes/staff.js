@@ -22,7 +22,8 @@ export async function staffRoutes(fastify, { pool }) {
 
     while (availablePins.length < 4 && attempts < maxAttempts) {
       attempts += 1;
-      const candidate = Math.floor(Math.random() * 9000) + 1000; // 1000–9999
+      // Avoid Math.random(): use cryptographically strong randomness.
+      const candidate = crypto.randomInt(1000, 10000); // 1000–9999
 
       // Avoid duplicates inside suggestions themselves.
       if (generatedPins.has(candidate)) continue;

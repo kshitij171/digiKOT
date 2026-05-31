@@ -1,4 +1,5 @@
 import { supabase } from '../lib/db/supabaseClient';
+import { createId } from '../lib/utils/id';
 
 export function createSupabaseRealtimeAdapter() {
   return {
@@ -7,7 +8,7 @@ export function createSupabaseRealtimeAdapter() {
       // This prevents collisions when multiple components subscribe to the
       // same logical channel (e.g. Strict Mode double-mount, or two components
       // that both watch the same table).
-      const uniqueName = `${channelName}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const uniqueName = `${channelName}-${createId()}`;
       const channel = supabase
         .channel(uniqueName)
         .on(

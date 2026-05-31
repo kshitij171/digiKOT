@@ -23,8 +23,8 @@ export function AuthProvider({ children }) {
    * Log in with a 4-digit PIN only.
    * Creates a waiter_sessions record for users with the 'waiter' role.
    */
-  const loginWithPin = async (pin) => {
-    const user = await authService.loginWithPin(pin);
+  const loginWithPinHash = async (pinHash) => {
+    const user = await authService.loginWithPinHash(pinHash);
 
     let waiterSessionId = null;
     if (user.role === 'waiter') {
@@ -73,7 +73,7 @@ export function AuthProvider({ children }) {
       role,
       supervisorId,
       supervisorName,
-      loginWithPin,
+      loginWithPinHash,
       logoutUser,
     };
   }, [session]);
