@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
+import { hashPin } from '../lib/utils/auth';
 import './LoginScreen.css';
 
 const PIN_LENGTH = 4;
@@ -14,10 +15,11 @@ const NUMPAD_KEYS = [
 ];
 
 export default function LoginScreen() {
-  const [pin, setPin] = useState('');
+  const pinRef = useRef('');
+  const [pinLength, setPinLength] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { loginWithPin } = useAuth();
+  const { loginWithPinHash } = useAuth();
   const navigate = useNavigate();
 
   const handleKey = (key) => {
@@ -25,29 +27,35 @@ export default function LoginScreen() {
     setError('');
 
     if (key === 'del') {
-      setPin((prev) => prev.slice(0, -1));
+      pinRef.current = pinRef.current.slice(0, -1);
+      setPinLength(pinRef.current.length);
       return;
     }
 
-    setPin((prev) => {
-      if (prev.length >= PIN_LENGTH) return prev;
-      const next = prev + key;
-      if (next.length === PIN_LENGTH) {
-        submitPin(next);
-      }
-      return next;
-    });
+    if (pinRef.current.length >= PIN_LENGTH) return;
+    pinRef.current = pinRef.current + key;
+    const nextLen = pinRef.current.length;
+    setPinLength(nextLen);
+    if (nextLen === PIN_LENGTH) {
+      submitPinHash();
+    }
   };
 
-  const submitPin = async (pinValue) => {
+  const clearPin = () => {
+    pinRef.current = '';
+    setPinLength(0);
+  };
+
+  const submitPinHash = async () => {
     setLoading(true);
     setError('');
     try {
-      const user = await loginWithPin(pinValue);
+      const pinHash = await hashPin(pinRef.current);
+      const user = await loginWithPinHash(pinHash);
       navigate(authService.getRouteForRole(user.role));
     } catch (err) {
       setError(err.message || 'Incorrect PIN.');
-      setPin('');
+      clearPin();
     } finally {
       setLoading(false);
     }
@@ -66,7 +74,7 @@ export default function LoginScreen() {
           {Array.from({ length: PIN_LENGTH }).map((_, i) => (
             <div
               key={i}
-              className={`pin-dot ${i < pin.length ? 'filled' : ''} ${loading ? 'loading' : ''}`}
+              className={`pin-dot ${i < pinLength ? 'filled' : ''} ${loading ? 'loading' : ''}`}
             />
           ))}
         </div>
@@ -84,7 +92,7 @@ export default function LoginScreen() {
                   key={idx}
                   className="numpad-key del-key"
                   onClick={() => handleKey('del')}
-                  disabled={loading || pin.length === 0}
+                  disabled={loading || pinLength === 0}
                   aria-label="Delete"
                 >
                   ⌫
@@ -96,7 +104,7 @@ export default function LoginScreen() {
                 key={idx}
                 className="numpad-key digit-key"
                 onClick={() => handleKey(key)}
-                disabled={loading || pin.length >= PIN_LENGTH}
+                disabled={loading || pinLength >= PIN_LENGTH}
               >
                 {key}
               </button>

@@ -239,9 +239,11 @@ export default function KitchenApp() {
                       const isOos = item.status === 'removed' || item.status === 'out_of_stock';
                       const isCancelled = item.status === 'cancelled';
                       const isResolved = isDone || isOos || isCancelled;
+                      const stableKey =
+                        (kot?.id && item?.itemId != null) ? `${kot.id}:${item.itemId}` : `${kot?.id || 'kot'}:${idx}`;
 
                       return (
-                        <div key={`${item.itemId}-${idx}`} className={`k-item-row ${isResolved ? 'resolved' : ''} ${isCancelled ? 'cancelled-row' : ''}`}>
+                        <div key={stableKey} className={`k-item-row ${isResolved ? 'resolved' : ''} ${isCancelled ? 'cancelled-row' : ''}`}>
                           <div className="k-item-info">
                             <img src={item.imageUrl} alt={item.name} className="k-item-thumb" />
                             <div className="k-item-details">

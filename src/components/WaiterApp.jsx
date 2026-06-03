@@ -14,20 +14,16 @@ import {
   computeBillTotalsFromClearedKots,
   combinedConsumedItemsFromClearedKots,
 } from '../lib/billing/billTotals';
+import { CATEGORY_ORDER } from '../data/categoryOrder';
 
-// ── Category display order (matches seed) ─────────────────
-const CATEGORY_ORDER = [
-  'Starters',
-  'Soups',
-  'Main Course — Veg',
-  'Main Course — Non Veg',
-  'Breads',
-  'Rice & Biryani',
-  'Pasta & Pizza',
-  'Desserts',
-  'Beverages — Non Alcoholic',
-  'Beverages — Alcoholic',
-];
+/** URL-safe id for category sections and nav data-category attributes. */
+function categoryToSlug(name) {
+  return String(name)
+    .toLowerCase()
+    .replace(/\s*[—–]\s*/g, '-')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
 
 /** Phone digits only; display masked as asterisks (not stored). */
 function MaskedPhoneInput({ value, onChange, disabled, id }) {
@@ -67,18 +63,335 @@ function MaskedPhoneInput({ value, onChange, disabled, id }) {
   );
 }
 
-const CATEGORY_ICONS = {
-  'Starters':                   '🥗',
-  'Soups':                      '🍲',
-  'Main Course — Veg':          '🌿',
-  'Main Course — Non Veg':      '🍗',
-  'Breads':                     '🫓',
-  'Rice & Biryani':             '🍚',
-  'Pasta & Pizza':              '🍝',
-  'Desserts':                   '🍰',
-  'Beverages — Non Alcoholic':  '🥤',
-  'Beverages — Alcoholic':      '🍷',
-};
+/** Lucide-style 16px nav icons (inline SVG, no emoji). */
+function NavSvg({ className, children }) {
+  return (
+    <svg
+      className={className}
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+
+function CategoryIcon({ className = 'cat-icon' }) {
+  return (
+    <NavSvg className={className}>
+      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+      <path d="M7 2v20" />
+      <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+    </NavSvg>
+  );
+}
+
+function LogOutIcon({ className = 'cat-logout-icon' }) {
+  return (
+    <NavSvg className={className}>
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
+    </NavSvg>
+  );
+}
+
+function TrashIcon({ className = 'topbar-btn-icon' }) {
+  return (
+    <NavSvg className={className}>
+      <path d="M3 6h18" />
+      <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+      <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+      <line x1="10" x2="10" y1="11" y2="17" />
+      <line x1="14" x2="14" y1="11" y2="17" />
+    </NavSvg>
+  );
+}
+
+function UtensilsIcon({ className = 'menu-placeholder-icon' }) {
+  return (
+    <svg
+      className={className}
+      width="32"
+      height="32"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2" />
+      <path d="M7 2v20" />
+      <path d="M21 15V2a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7" />
+    </svg>
+  );
+}
+
+function hasDisplayableMenuImage(url) {
+  if (!url || typeof url !== 'string') return false;
+  const normalized = url.trim().toLowerCase();
+  return normalized.length > 0 && !normalized.includes('placeholder');
+}
+
+function formatMenuPrice(price) {
+  const n = Number(price);
+  if (!Number.isFinite(n)) return '₹0';
+  if (Number.isInteger(n) || Math.abs(n - Math.round(n)) < 0.001) {
+    return `₹${Math.round(n)}`;
+  }
+  return `₹${n.toFixed(2)}`;
+}
+
+function MenuItemImage({ imageUrl, name, isVegetarian }) {
+  const [imageFailed, setImageFailed] = useState(!hasDisplayableMenuImage(imageUrl));
+  const showPlaceholder = imageFailed || !hasDisplayableMenuImage(imageUrl);
+  const dietLabel = isVegetarian ? 'Vegetarian' : 'Non-Vegetarian';
+
+  return (
+    <div className="menu-img-wrap">
+      <span
+        className={`menu-veg-badge ${isVegetarian ? 'veg' : 'nonveg'}`}
+        title={dietLabel}
+      >
+        <span className="sr-only">{dietLabel}</span>
+      </span>
+      {showPlaceholder ? (
+        <div className="menu-img-placeholder" role="img" aria-label={`${name}, no photo available`}>
+          <UtensilsIcon />
+          <span className="menu-img-placeholder-text" aria-hidden="true">No photo yet</span>
+        </div>
+      ) : (
+        <img
+          src={imageUrl}
+          alt={name}
+          className="menu-img"
+          loading="lazy"
+          onError={() => setImageFailed(true)}
+        />
+      )}
+    </div>
+  );
+}
+
+function formatCartAmount(amount) {
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return '₹0.00';
+  return `₹${n.toFixed(2)}`;
+}
+
+function MenuItemCard({ item, inCart, onAdd, onUpdateQty, showCategoryTag = false }) {
+  const isOOS = item.outOfStock;
+  return (
+    <article className={`menu-card-lux ${isOOS ? 'oos' : ''}`}>
+      <div className="menu-card-media">
+        <MenuItemImage
+          imageUrl={item.imageUrl}
+          name={item.name}
+          isVegetarian={item.isVegetarian}
+        />
+        {isOOS && <span className="menu-oos-badge">Out of Stock</span>}
+      </div>
+      <div className="menu-card-body">
+        <h3 className="menu-card-name">{item.name}</h3>
+        {showCategoryTag && (
+          <div className="menu-card-category-tag">{item.category}</div>
+        )}
+        {item.description && (
+          <p className="menu-card-desc">{item.description}</p>
+        )}
+        <div className="menu-card-footer">
+          <span className="menu-card-price">{formatMenuPrice(item.price)}</span>
+          <div className="menu-card-action">
+            {isOOS ? (
+              <span className="menu-oos-action">Unavailable</span>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className={`menu-add-btn ${inCart > 0 ? 'menu-add-btn--hidden' : ''}`}
+                  onClick={() => onAdd(item)}
+                  aria-label={`Add ${item.name} to cart`}
+                >
+                  +
+                </button>
+                <div
+                  className={`menu-qty-stepper ${inCart > 0 ? 'menu-qty-stepper--visible' : ''}`}
+                  aria-label={`Quantity: ${inCart}`}
+                >
+                  <button
+                    type="button"
+                    className="menu-qty-stepper-btn"
+                    onClick={() => onUpdateQty(item.id, -1)}
+                    aria-label={`Decrease ${item.name} quantity`}
+                  >
+                    −
+                  </button>
+                  <span className="menu-qty-stepper-value">{inCart}</span>
+                  <button
+                    type="button"
+                    className="menu-qty-stepper-btn"
+                    onClick={() => onUpdateQty(item.id, 1)}
+                    aria-label={`Increase ${item.name} quantity`}
+                  >
+                    +
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function TrayIcon({ className = 'cart-empty-icon' }) {
+  return (
+    <svg
+      className={className}
+      width="48"
+      height="48"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 7h18" />
+      <path d="M4 7l1.5 12h13L20 7" />
+      <path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M9 11h6" />
+    </svg>
+  );
+}
+
+function SendArrowIcon({ className = 'send-kot-arrow' }) {
+  return (
+    <NavSvg className={className}>
+      <path d="M5 12h14" />
+      <path d="m12 5 7 7-7 7" />
+    </NavSvg>
+  );
+}
+
+function SpinnerIcon({ className = 'send-kot-spinner' }) {
+  return (
+    <svg
+      className={className}
+      width="20"
+      height="20"
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" opacity="0.25" />
+      <path
+        d="M12 2a10 10 0 0 1 10 10"
+        stroke="currentColor"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function useDebouncedValue(value, delayMs) {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+function useDebouncedWindowWidth(delayMs = 150) {
+  const [width, setWidth] = useState(() => (typeof window !== 'undefined' ? window.innerWidth : 1024));
+  useEffect(() => {
+    let timer;
+    const onResize = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => setWidth(window.innerWidth), delayMs);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [delayMs]);
+  return width;
+}
+
+function SearchIcon({ className = 'menu-search-icon' }) {
+  return (
+    <NavSvg className={className}>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </NavSvg>
+  );
+}
+
+function CheckCircleIcon({ className = 'toast-icon' }) {
+  return (
+    <svg
+      className={className}
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+      <path d="m9 11 3 3L22 4" />
+    </svg>
+  );
+}
+
+function MenuSkeletonGrid() {
+  return (
+    <div className="menu-grid menu-grid--skeleton" aria-hidden="true">
+      {Array.from({ length: 6 }, (_, i) => (
+        <div key={i} className="menu-skeleton-card">
+          <div className="menu-skeleton-media" />
+          <div className="menu-skeleton-body">
+            <div className="menu-skeleton-line menu-skeleton-line--title" />
+            <div className="menu-skeleton-line menu-skeleton-line--desc" />
+            <div className="menu-skeleton-line menu-skeleton-line--price" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToastBanner({ toast }) {
+  if (!toast) return null;
+  const isSuccess = toast.variant === 'success';
+  return (
+    <div
+      className={`toast ${isSuccess ? 'toast--success' : ''}`}
+      role="status"
+      aria-live="polite"
+    >
+      {isSuccess && <CheckCircleIcon />}
+      <span>{toast.message}</span>
+    </div>
+  );
+}
 
 // ═══════════════════════════════════════════════════════════
 // PAGE 1: Table Selection Grid
@@ -97,22 +410,34 @@ function TableSelection() {
 
   return (
     <div className="w-page1-layout">
-      <div className="p1-topbar">
-        <div className="p1-brand">OPULENCE</div>
-        <div className="p1-title">
-          Select a Table
-          {currentUser?.name && (
-            <span style={{ fontSize: '0.8rem', fontWeight: 400, marginLeft: '0.5rem', opacity: 0.6 }}>
-              — {currentUser.name}
-            </span>
-          )}
+      <header id="tables-page-header">
+        <div className="tables-header-meta">
+          <div className="waiter-info">
+            <span className="waiter-label">Waiter</span>
+            <span className="waiter-name">{currentUser?.name || 'Staff'}</span>
+          </div>
+          <button type="button" className="logout-btn-tables logout-mobile-only" onClick={logoutUser}>
+            Log out
+          </button>
         </div>
-        <div className="p1-stats">
-          <span className="stat-chip available">{available} Available</span>
-          <span className="stat-chip occupied">{occupied} Occupied</span>
+
+        <div className="tables-header-brand">
+          <span className="brand-name">OPULENCE</span>
+          <span className="brand-sub">Restaurant</span>
         </div>
-        <button className="w-logout-btn" onClick={logoutUser}>Logout</button>
-      </div>
+
+        <div className="tables-header-title-row">
+          <span className="tables-page-title">Select a table</span>
+          <div className="tables-header-badges">
+            <span className="badge badge-available">{available} Available</span>
+            <span className="badge badge-occupied">{occupied} Occupied</span>
+          </div>
+          <button type="button" className="logout-btn-tables logout-desktop-only" onClick={logoutUser}>
+            Log out
+          </button>
+        </div>
+      </header>
+
       <div className="table-grid-50">
         {tables.map(t => {
           const num = t.tableId.replace('T', '');
@@ -143,12 +468,28 @@ function OrderPage() {
 
   // ── Menu & Categories ─────────────────────────────────────
   const [menuItems, setMenuItems] = useState([]);
+  const [menuLoaded, setMenuLoaded] = useState(false);
   const [activeCategory, setActiveCategory] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showCart, setShowCart] = useState(true);
+  const [searchInput, setSearchInput] = useState('');
+  const debouncedSearchQuery = useDebouncedValue(searchInput, 200);
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+  const menuScrollAreaRef = useRef(null);
+  const activeCategoryRef = useRef('');
+  const categoryBeforeSearchRef = useRef('');
+  const wasSearchingRef = useRef(false);
+  const prevCartQtyRef = useRef(null);
+  const prevCartTotalRef = useRef(null);
+  const prevCheckedTotalRef = useRef(null);
+  const [cartBadgePop, setCartBadgePop] = useState(false);
+  const [cartTotalPulse, setCartTotalPulse] = useState(false);
+  const [checkedTotalPulse, setCheckedTotalPulse] = useState(false);
+  const windowWidth = useDebouncedWindowWidth(150);
 
   useEffect(() => {
-    return menuService.subscribeMenu(setMenuItems);
+    return menuService.subscribeMenu((items) => {
+      setMenuItems(items);
+      setMenuLoaded(true);
+    });
   }, []);
 
   // Derive ordered categories from loaded items
@@ -166,17 +507,161 @@ function OrderPage() {
     }
   }, [categories, activeCategory]);
 
-  const filteredMenu = useMemo(() => {
-    if (searchQuery) {
-      // When searching, always look across the entire menu regardless of selected category.
-      const q = searchQuery.toLowerCase();
-      return menuItems.filter(item =>
-        item.name.toLowerCase().includes(q) ||
-        (item.description && item.description.toLowerCase().includes(q))
-      );
+  activeCategoryRef.current = activeCategory;
+
+  const menuSections = useMemo(() => {
+    const byCategory = new Map();
+    categories.forEach(cat => byCategory.set(cat, []));
+    menuItems.forEach(item => {
+      const cat = item.category;
+      if (!byCategory.has(cat)) byCategory.set(cat, []);
+      byCategory.get(cat).push(item);
+    });
+    return categories.map(category => ({
+      category,
+      slug: categoryToSlug(category),
+      items: byCategory.get(category) || [],
+    }));
+  }, [menuItems, categories]);
+
+  const isSearchActive = Boolean(searchInput.trim());
+  const searchFilterQuery = (debouncedSearchQuery || searchInput).trim();
+
+  const itemMatchesSearch = (item, q) => {
+    if (!q) return false;
+    const needle = q.toLowerCase();
+    return (
+      item.name.toLowerCase().includes(needle) ||
+      (item.description && item.description.toLowerCase().includes(needle)) ||
+      (item.category && item.category.toLowerCase().includes(needle))
+    );
+  };
+
+  const searchResultSections = useMemo(() => {
+    if (!searchFilterQuery) return [];
+    const q = searchFilterQuery;
+    const matched = menuItems.filter(item => itemMatchesSearch(item, q));
+    const byCategory = new Map();
+    matched.forEach(item => {
+      if (!byCategory.has(item.category)) byCategory.set(item.category, []);
+      byCategory.get(item.category).push(item);
+    });
+    const matchedCategoryNames = [...byCategory.keys()];
+    const orderedCategories = [
+      ...categories.filter(cat => byCategory.has(cat)),
+      ...matchedCategoryNames.filter(cat => !categories.includes(cat)),
+    ];
+    return orderedCategories.map(category => ({
+      category,
+      slug: categoryToSlug(category),
+      items: byCategory.get(category) || [],
+    }));
+  }, [menuItems, categories, searchFilterQuery]);
+
+  const searchResultCount = useMemo(
+    () => searchResultSections.reduce((sum, s) => sum + s.items.length, 0),
+    [searchResultSections]
+  );
+
+  const scrollActivePillIntoView = () => {
+    const slug = categoryToSlug(activeCategoryRef.current);
+    const activePill = document.querySelector(
+      `#category-strip .category-pill[data-category="${slug}"]`
+    ) || document.querySelector('#category-strip .pill-active');
+    activePill?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+  };
+
+  const applyActiveCategory = (categoryName, { scrollNav = true, scrollMenu = false } = {}) => {
+    if (!categoryName) return;
+    setActiveCategory(categoryName);
+    activeCategoryRef.current = categoryName;
+
+    if (scrollNav) {
+      requestAnimationFrame(() => scrollActivePillIntoView());
     }
-    return menuItems.filter(item => item.category === activeCategory);
-  }, [menuItems, activeCategory, searchQuery]);
+
+    if (scrollMenu) {
+      const section = document.getElementById(`section-${categoryToSlug(categoryName)}`);
+      section?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  };
+
+  // Scroll spy: highlight nav for the section in the upper viewport band
+  useEffect(() => {
+    if (isSearchActive || !menuLoaded) return undefined;
+
+    const root = menuScrollAreaRef.current;
+    if (!root) return undefined;
+
+    const sectionObserver = new IntersectionObserver((entries) => {
+      const intersecting = entries.filter(e => e.isIntersecting);
+      if (!intersecting.length) return;
+
+      const topmost = intersecting.reduce((best, entry) =>
+        (entry.boundingClientRect.top < best.boundingClientRect.top ? entry : best)
+      );
+
+      const categoryName = topmost.target.getAttribute('data-category-name');
+      if (categoryName && categoryName !== activeCategoryRef.current) {
+        setActiveCategory(categoryName);
+        activeCategoryRef.current = categoryName;
+        requestAnimationFrame(() => scrollActivePillIntoView());
+      }
+    }, {
+      root,
+      rootMargin: '-20% 0px -70% 0px',
+      threshold: 0,
+    });
+
+    root.querySelectorAll('.menu-category-section').forEach(section => {
+      sectionObserver.observe(section);
+    });
+
+    const sentinel = root.querySelector('.menu-scroll-sentinel');
+    const sentinelObserver = sentinel
+      ? new IntersectionObserver(([entry]) => {
+          if (!entry.isIntersecting || categories.length === 0) return;
+          const lastCategory = categories[categories.length - 1];
+          if (lastCategory !== activeCategoryRef.current) {
+            setActiveCategory(lastCategory);
+            activeCategoryRef.current = lastCategory;
+            requestAnimationFrame(() => scrollActivePillIntoView());
+          }
+        }, { root, threshold: 0 })
+      : null;
+    if (sentinel && sentinelObserver) sentinelObserver.observe(sentinel);
+
+    return () => {
+      sectionObserver.disconnect();
+      sentinelObserver?.disconnect();
+    };
+  }, [isSearchActive, menuLoaded, menuSections.length, categories]);
+
+  // Restore continuous scroll position when search is cleared
+  useEffect(() => {
+    if (searchInput.trim() || debouncedSearchQuery.trim()) {
+      wasSearchingRef.current = true;
+      if (activeCategoryRef.current) {
+        categoryBeforeSearchRef.current = activeCategoryRef.current;
+      }
+      return undefined;
+    }
+
+    if (!wasSearchingRef.current) return undefined;
+    wasSearchingRef.current = false;
+
+    const restoreCategory = categoryBeforeSearchRef.current || categories[0];
+    if (!restoreCategory) return undefined;
+
+    const timer = window.setTimeout(() => {
+      applyActiveCategory(restoreCategory, { scrollNav: true, scrollMenu: true });
+    }, 50);
+    return () => window.clearTimeout(timer);
+  }, [searchInput, debouncedSearchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (windowWidth >= 1024) setCartDrawerOpen(false);
+  }, [windowWidth]);
 
   // ── KOTs & billing data ───────────────────────────────────
   const [clearedKots, setClearedKots] = useState([]);
@@ -277,7 +762,8 @@ function OrderPage() {
     return [];
   });
   const [specialInstructions, setSpecialInstructions] = useState('');
-  const [toast, setToast] = useState('');
+  const [toast, setToast] = useState(null);
+  const [kotSubmitting, setKotSubmitting] = useState(false);
 
   // ── Bill modification request state ──────────────────────
   const [lastBillId, setLastBillId] = useState(null);
@@ -333,20 +819,113 @@ function OrderPage() {
   const updateQty = (itemId, delta) =>
     setCartItems(prev => prev.map(i => i.itemId === itemId ? { ...i, qty: i.qty + delta } : i).filter(i => i.qty > 0));
 
-  const toggleCheck = itemId =>
+  const toggleCheck = (itemId) =>
     setCartItems(prev => prev.map(i => i.itemId === itemId ? { ...i, isChecked: !i.isChecked } : i));
 
-  const allChecked   = cartItems.length > 0 && cartItems.every(i => i.isChecked);
+  const removeCartItem = (itemId) =>
+    setCartItems(prev => prev.filter(i => i.itemId !== itemId));
+
+  const allChecked = cartItems.length > 0 && cartItems.every(i => i.isChecked);
   const toggleSelectAll = () => setCartItems(prev => prev.map(i => ({ ...i, isChecked: !allChecked })));
 
   const checkedItems = cartItems.filter(i => i.isChecked);
   const checkedTotal = checkedItems.reduce((acc, i) => acc + i.price * i.qty, 0);
-  const hasChecked   = checkedItems.length > 0;
-  const cartQty      = cartItems.reduce((sum, i) => sum + i.qty, 0);
+  const hasChecked = checkedItems.length > 0;
 
-  const showToast = (msg) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
+  const cartQty      = cartItems.reduce((sum, i) => sum + i.qty, 0);
+  const cartTotal    = cartItems.reduce((sum, i) => sum + i.price * i.qty, 0);
+  const hasCartItems = cartItems.length > 0;
+
+  const selectCategory = (cat) => {
+    if (searchInput.trim()) {
+      categoryBeforeSearchRef.current = cat;
+      setSearchInput('');
+      window.setTimeout(() => {
+        applyActiveCategory(cat, { scrollNav: true, scrollMenu: true });
+      }, 220);
+      return;
+    }
+    applyActiveCategory(cat, { scrollNav: true, scrollMenu: true });
+  };
+
+  const handleCategoryStripKeyDown = (e) => {
+    const pills = Array.from(document.querySelectorAll('#category-strip [role="tab"]'));
+    if (!pills.length) return;
+
+    const focusedIndex = pills.indexOf(document.activeElement);
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = pills[focusedIndex >= 0 ? Math.min(focusedIndex + 1, pills.length - 1) : 0];
+      next?.focus();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prev = pills[focusedIndex > 0 ? focusedIndex - 1 : pills.length - 1];
+      prev?.focus();
+    }
+  };
+
+  const closeCartDrawer = () => setCartDrawerOpen(false);
+  const openCartDrawer = () => setCartDrawerOpen(true);
+
+  useEffect(() => {
+    if (!cartDrawerOpen && !showSummary && !showRemovalModal) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        setCartDrawerOpen(false);
+        setShowSummary(false);
+        setShowRemovalModal(false);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [cartDrawerOpen, showSummary, showRemovalModal]);
+
+  useEffect(() => {
+    if (prevCartQtyRef.current === null) {
+      prevCartQtyRef.current = cartQty;
+      return undefined;
+    }
+    if (cartQty > prevCartQtyRef.current) {
+      setCartBadgePop(true);
+      const t = setTimeout(() => setCartBadgePop(false), 320);
+      prevCartQtyRef.current = cartQty;
+      return () => clearTimeout(t);
+    }
+    prevCartQtyRef.current = cartQty;
+    return undefined;
+  }, [cartQty]);
+
+  useEffect(() => {
+    if (prevCartTotalRef.current === null) {
+      prevCartTotalRef.current = cartTotal;
+      return undefined;
+    }
+    if (cartTotal !== prevCartTotalRef.current) {
+      setCartTotalPulse(true);
+      const t = setTimeout(() => setCartTotalPulse(false), 600);
+      prevCartTotalRef.current = cartTotal;
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [cartTotal]);
+
+  useEffect(() => {
+    if (prevCheckedTotalRef.current === null) {
+      prevCheckedTotalRef.current = checkedTotal;
+      return undefined;
+    }
+    if (checkedTotal !== prevCheckedTotalRef.current) {
+      setCheckedTotalPulse(true);
+      const t = setTimeout(() => setCheckedTotalPulse(false), 600);
+      prevCheckedTotalRef.current = checkedTotal;
+      return () => clearTimeout(t);
+    }
+    return undefined;
+  }, [checkedTotal]);
+
+  const showToast = (message, variant = 'default') => {
+    setToast({ message, variant });
+    setTimeout(() => setToast(null), 3000);
   };
 
   const partialRemovalCaption = (item) => {
@@ -365,7 +944,9 @@ function OrderPage() {
 
   // ── KOT submission ────────────────────────────────────────
   const submitKOT = async () => {
-    if (checkedItems.length === 0) return;
+    if (checkedItems.length === 0 || kotSubmitting) return;
+    setKotSubmitting(true);
+    const startedAt = Date.now();
     try {
       await kotService.createKotFromCart({
         tableNumber: parseInt(id),
@@ -374,16 +955,21 @@ function OrderPage() {
         items: checkedItems.map(({ isChecked, ...rest }) => rest),
         specialInstructions,
       });
-      showToast(`KOT sent to kitchen — Table ${id}`);
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 1000) {
+        await new Promise(resolve => setTimeout(resolve, 1000 - elapsed));
+      }
+      showToast('Order sent to kitchen!', 'success');
       setCartItems(prev => {
         const remaining = prev.filter(i => !i.isChecked);
         try { localStorage.setItem(CART_KEY, JSON.stringify(remaining.map(({ isChecked, ...r }) => r))); } catch { /* ignore */ }
         return remaining;
       });
-      setSpecialInstructions('');
     } catch (err) {
       console.error('KOT error:', err);
       alert('Failed to submit KOT. Please try again.');
+    } finally {
+      setKotSubmitting(false);
     }
   };
 
@@ -490,7 +1076,6 @@ function OrderPage() {
    */
   const buildRemovalSelections = () => {
     const consumedItems = combinedConsumedItems.filter((item) => item.status === 'done');
-    console.log('REMOVAL OVERLAY ITEMS:', JSON.stringify(consumedItems, null, 2));
     return consumedItems.flatMap((item, rowIndex) =>
       Array.from({ length: item.qty }, (_, u) => ({
         ...item,
@@ -602,96 +1187,147 @@ function OrderPage() {
     return row ? row.qty : 0;
   };
 
+  const handleKotClick = () => {
+    if (window.matchMedia('(max-width: 1023px)').matches) {
+      openCartDrawer();
+    }
+  };
+
+  const renderMenuCard = (item, showCategoryTag = false) => (
+    <MenuItemCard
+      key={item.id}
+      item={item}
+      inCart={cartQtyForItem(item.id)}
+      onAdd={addToCart}
+      onUpdateQty={updateQty}
+      showCategoryTag={showCategoryTag}
+    />
+  );
+
   return (
     <>
-      {toast && <div className="toast">{toast}</div>}
+      <ToastBanner toast={toast} />
 
-      {/* ══ 3-Column Luxury Layout ══ */}
+      {/* ══ Responsive 3-region layout (nav · main · cart) ══ */}
       <div className="order-layout">
 
-        {/* LEFT: Category Sidebar */}
-        <aside className="cat-sidebar">
-          <div className="cat-sidebar-brand">
+        {/* LEFT: Category navigation */}
+        <nav id="sidebar" className="cat-sidebar" role="navigation" aria-label="Menu categories">
+          <header className="cat-sidebar-brand">
             <div className="brand-logo-text">OPULENCE</div>
-            <div className="brand-tagline-text">Restaurant</div>
+            <div className="brand-tagline-text">RESTAURANT</div>
+          </header>
+
+          <div className="cat-sidebar-context">
+            <div className="cat-sidebar-table">
+              <div className="cat-sidebar-table-label">TABLE</div>
+              <div className="cat-sidebar-table-num">{id}</div>
+            </div>
           </div>
 
-          <div className="cat-sidebar-table">
-            <div className="cat-sidebar-table-label">Table</div>
-            <div className="cat-sidebar-table-num">{id}</div>
-          </div>
-
-          <nav className="cat-list">
+          <ul className="cat-list cat-list--sidebar">
             {categories.map(cat => (
-              <div
-                key={cat}
-                className={`cat-item ${activeCategory === cat ? 'active' : ''}`}
-                onClick={() => { setActiveCategory(cat); setSearchQuery(''); }}
-              >
-                <span className="cat-icon">{CATEGORY_ICONS[cat] || '🍽️'}</span>
-                <span>{cat}</span>
-              </div>
+              <li key={cat} className="cat-list-item">
+                <button
+                  type="button"
+                  className={`cat-item nav-item ${activeCategory === cat ? 'active' : ''}`}
+                  data-category={categoryToSlug(cat)}
+                  onClick={() => selectCategory(cat)}
+                >
+                  <CategoryIcon category={cat} />
+                  <span className="cat-label">{cat}</span>
+                </button>
+              </li>
             ))}
-          </nav>
+          </ul>
 
-          <div className="cat-sidebar-footer">
-            <button className="w-logout-btn" style={{ width: '100%' }} onClick={logoutUser}>
-              Logout
+          <footer className="cat-sidebar-footer">
+            <button className="cat-logout-btn" type="button" onClick={logoutUser}>
+              <LogOutIcon />
+              Log out
             </button>
-          </div>
-        </aside>
+          </footer>
+        </nav>
 
         {/* CENTRE: Menu Content */}
         <main className="order-main">
 
-          {/* Top Bar */}
-          <div className="order-topbar">
-            <button className="order-topbar-back" onClick={() => navigate('/waiter')}>
-              ← Tables
-            </button>
-
-            <div className="order-topbar-cat">{searchQuery ? `Search results` : activeCategory}</div>
-
-            <div className="order-topbar-spacer" />
-
-            {/* KOT counter */}
-            <button
-              className="kot-counter-btn"
-              onClick={() => setShowCart(s => !s)}
-              title={showCart ? 'Hide cart' : 'Show cart'}
-            >
-              KOT
-              <span className="kot-badge">{cartQty}</span>
-            </button>
-
-            {hasConsumed && !pendingBillRemovalRequest && (
-              <button className="topbar-action-btn warn" onClick={openRemovalModal}>
-                Request Removal
+          {/* Sticky top bar — order actions only (logout is in sidebar / mobile footer) */}
+          <header id="menu-top-bar" className="menu-top-bar">
+            <div className="menu-top-left">
+              <button
+                type="button"
+                className="menu-breadcrumb"
+                onClick={() => navigate('/waiter')}
+              >
+                ← Tables
               </button>
-            )}
-            {hasConsumed && pendingBillRemovalRequest && (
-              <span className="topbar-pending-removal" title="Wait for manager decision">
-                Removal pending…
+              <span className="menu-active-category">
+                {isSearchActive ? 'Search results' : (activeCategory || 'Menu')}
               </span>
-            )}
+            </div>
 
-            <button
-              className="topbar-action-btn"
-              onClick={() => setShowSummary(true)}
+            <div className="menu-top-actions">
+              <button
+                type="button"
+                className={`topbar-btn topbar-kot-btn action-btn ${cartQty > 0 ? 'topbar-kot-btn--filled' : 'topbar-kot-btn--ghost'}`}
+                onClick={handleKotClick}
+                aria-label={cartQty > 0 ? `KOT, ${cartQty} items in cart` : 'KOT, cart empty'}
+              >
+                <span className="topbar-kot-label">KOT</span>
+                {cartQty > 0 && (
+                  <span className="topbar-kot-count" aria-hidden="true">{cartQty}</span>
+                )}
+              </button>
+
+              <button
+                type="button"
+                className="topbar-btn topbar-btn--ghost action-btn"
+                onClick={() => setShowSummary(true)}
+                aria-label={hasConsumed ? `View bill summary, total ₹${grandTotal.toFixed(0)}` : 'View bill summary'}
+              >
+                {hasConsumed ? `Summary ₹${grandTotal.toFixed(0)}` : 'Summary'}
+              </button>
+
+              <button
+                type="button"
+                className="topbar-btn topbar-btn--danger clear-table-btn action-btn"
+                disabled={clearedKots.length === 0}
+                onClick={handleClearTable}
+                aria-label="Clear table"
+              >
+                <TrashIcon className="topbar-btn-icon clear-table-icon" />
+                <span className="label-full">Clear Table</span>
+                <span className="label-short">Clear</span>
+              </button>
+            </div>
+          </header>
+
+          <div className="category-strip-wrap">
+            <nav
+              id="category-strip"
+              className="category-strip"
+              role="tablist"
+              aria-label="Menu categories"
+              onKeyDown={handleCategoryStripKeyDown}
             >
-              {hasConsumed ? `Summary ₹${grandTotal.toFixed(0)}` : 'Summary'}
-            </button>
-
-            <button
-              className="topbar-action-btn danger"
-              disabled={clearedKots.length === 0}
-              onClick={handleClearTable}
-            >
-              Clear Table
-            </button>
-
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  role="tab"
+                  data-category={categoryToSlug(cat)}
+                  aria-selected={activeCategory === cat ? 'true' : 'false'}
+                  className={`category-pill ${activeCategory === cat ? 'pill-active' : ''}`}
+                  onClick={() => selectCategory(cat)}
+                >
+                  {cat}
+                </button>
+              ))}
+            </nav>
           </div>
 
+          <div className="order-main-scroll">
           {hasConsumed && (
             <div className="order-bill-bar">
               <button
@@ -705,142 +1341,296 @@ function OrderPage() {
           )}
 
           {/* Full-width search bar — sits between topbar and menu grid */}
-          <div className="menu-search-bar">
-            <span className="menu-search-icon">🔍</span>
-            <input
-              type="text"
-              className="menu-search-input"
-              placeholder="Search menu…"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
+          <div className="menu-search-wrap">
+            <div className="menu-search-bar">
+              <SearchIcon />
+              <input
+                type="search"
+                className="menu-search-input"
+                placeholder="Search entire menu…"
+                value={searchInput}
+                onChange={e => setSearchInput(e.target.value)}
+                aria-label="Search menu"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  className="menu-search-clear"
+                  onClick={() => setSearchInput('')}
+                  aria-label="Clear search"
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            {isSearchActive && searchFilterQuery && searchResultCount > 0 && (
+              <p className="menu-search-meta">
+                Showing {searchResultCount} {searchResultCount === 1 ? 'result' : 'results'} across all categories for &apos;{searchFilterQuery}&apos;
+              </p>
+            )}
           </div>
 
-          {/* Menu Grid */}
-          <div className="menu-content">
-            <div className="menu-grid">
-              {filteredMenu.length === 0 ? (
-                <div className="menu-no-items">
-                  {searchQuery ? `No results for "${searchQuery}"` : 'No items in this category.'}
+          <div
+            id="menu-scroll-area"
+            ref={menuScrollAreaRef}
+            className={`menu-scroll-area ${isSearchActive ? 'menu-scroll-area--search' : ''}`}
+          >
+            {!menuLoaded ? (
+              <MenuSkeletonGrid />
+            ) : isSearchActive && searchFilterQuery ? (
+              searchResultCount === 0 ? (
+                <div className="menu-search-empty">
+                  <p className="menu-search-empty-title">No items match your search</p>
+                  <p className="menu-search-empty-hint">Try checking your spelling or search for something else.</p>
                 </div>
               ) : (
-                filteredMenu.map(item => {
-                  const isOOS = item.outOfStock;
-                  const inCart = cartQtyForItem(item.id);
-                  return (
-                    <div
-                      key={item.id}
-                      className={`menu-card-lux ${isOOS ? 'oos' : ''}`}
+                <div className="menu-search-results">
+                  {searchResultSections.map(({ category, slug, items }, index) => (
+                    <section
+                      key={slug}
+                      className={`menu-category-section ${index > 0 ? 'menu-category-section--divided' : ''}`}
+                      data-category={slug}
+                      data-category-name={category}
                     >
-                      <div className="menu-img-wrap">
-                        <img
-                          src={item.imageUrl}
-                          alt={item.name}
-                          className="menu-img"
-                          loading="lazy"
-                          onError={e => { e.target.src = '/placeholder.svg'; }}
-                        />
-                        {isOOS && <span className="menu-oos-badge">Out of Stock</span>}
-                        {inCart > 0 && !isOOS && (
-                          <span className="menu-cart-qty-badge">In cart: {inCart}</span>
-                        )}
+                      <div className="category-section-header">
+                        <h2>{category}</h2>
+                        <span className="item-count">
+                          {items.length} {items.length === 1 ? 'item' : 'items'}
+                        </span>
                       </div>
-                      <div className="menu-card-body">
-                        <div className="menu-card-name-row">
-                          <span className={`veg-dot ${item.isVegetarian ? 'veg' : 'nonveg'}`} title={item.isVegetarian ? 'Vegetarian' : 'Non-Vegetarian'} />
-                          <span className="menu-card-name">{item.name}</span>
+                      <div className="menu-grid">
+                        {items.map(item => renderMenuCard(item, true))}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )
+            ) : (
+              <>
+                {menuSections.map(({ category, slug, items }, index) => (
+                  <section
+                    key={slug}
+                    id={`section-${slug}`}
+                    className={`menu-category-section ${index > 0 ? 'menu-category-section--divided' : ''}`}
+                    data-category={slug}
+                    data-category-name={category}
+                  >
+                    <div className="category-section-header">
+                      <h2>{category}</h2>
+                      <span className="item-count">
+                        {items.length} {items.length === 1 ? 'item' : 'items'}
+                      </span>
+                    </div>
+                    <div className="menu-grid">
+                      {items.length === 0 ? (
+                        <p className="menu-section-empty">No items in this category.</p>
+                      ) : (
+                        items.map(item => renderMenuCard(item))
+                      )}
+                    </div>
+                  </section>
+                ))}
+                <div className="menu-scroll-sentinel" aria-hidden="true" />
+              </>
+            )}
+          </div>
+          </div>
+
+          <div id="mobile-logout-bar">
+            <button type="button" className="logout-btn-fullwidth" onClick={logoutUser}>
+              Log out
+            </button>
+          </div>
+        </main>
+
+        {/* RIGHT: Cart panel (grid column on desktop; drawer on tablet/mobile) */}
+        <aside
+          className={`cart-panel ${cartDrawerOpen ? 'cart-panel--open' : ''}`}
+          role="region"
+          aria-label="Shopping cart"
+        >
+          <div className="cart-panel-header">
+            <div className="cart-panel-header-main">
+              <h2 className="cart-panel-title">Order — Table {id}</h2>
+              {hasCartItems && (
+                <div className="cart-panel-header-meta">
+                  <span className="cart-panel-count-badge">
+                    {cartQty} {cartQty === 1 ? 'item' : 'items'}
+                  </span>
+                  <label className="cart-select-all">
+                    <input
+                      type="checkbox"
+                      className="cart-order-checkbox"
+                      checked={allChecked}
+                      onChange={toggleSelectAll}
+                    />
+                    Select all
+                  </label>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              className="cart-panel-close"
+              onClick={closeCartDrawer}
+              aria-label="Close cart"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className={`cart-rows-scroll ${cartItems.length === 0 ? 'cart-rows-scroll--empty' : ''}`}>
+            {cartItems.length === 0 ? (
+              <div className="cart-empty">
+                <TrayIcon />
+                <p className="cart-empty-heading">Cart is empty</p>
+                <p className="cart-empty-subtext">Tap + on any item to add it to the order</p>
+              </div>
+            ) : (
+              <ul className="cart-order-list">
+                {cartItems.map(item => {
+                  const itemNote = item.notes || item.note || item.specialInstructions;
+                  return (
+                    <li key={item.itemId} className={`cart-order-row ${item.isChecked ? 'cart-order-row--checked' : ''}`}>
+                      <div className="cart-order-row-body">
+                        <input
+                          type="checkbox"
+                          className="cart-order-checkbox"
+                          checked={item.isChecked}
+                          onChange={() => toggleCheck(item.itemId)}
+                          aria-label={`Select ${item.name} for kitchen`}
+                        />
+                        <div className="cart-order-row-info">
+                          <span className="cart-order-row-name">{item.name}</span>
+                          {itemNote && (
+                            <span className="cart-order-row-note">{itemNote}</span>
+                          )}
                         </div>
-                        {searchQuery && (
-                          <div className="menu-card-category-tag">{item.category}</div>
-                        )}
-                        {item.description && (
-                          <div className="menu-card-desc">{item.description}</div>
-                        )}
-                        <div className="menu-card-footer">
-                          <span className="menu-card-price">₹{item.price}</span>
+                        <div className="cart-order-row-stepper" aria-label={`Quantity: ${item.qty}`}>
                           <button
-                            className="add-btn-gold"
-                            disabled={isOOS}
-                            onClick={() => addToCart(item)}
-                            title={isOOS ? 'Out of stock' : 'Add to cart'}
+                            type="button"
+                            className="cart-order-stepper-btn"
+                            onClick={() => updateQty(item.itemId, -1)}
+                            aria-label={`Decrease ${item.name} quantity`}
+                          >
+                            −
+                          </button>
+                          <span className="cart-order-stepper-value">{item.qty}</span>
+                          <button
+                            type="button"
+                            className="cart-order-stepper-btn"
+                            onClick={() => updateQty(item.itemId, 1)}
+                            aria-label={`Increase ${item.name} quantity`}
                           >
                             +
                           </button>
                         </div>
+                        <span className="cart-order-row-total">
+                          {formatCartAmount(item.price * item.qty)}
+                        </span>
+                        <button
+                          type="button"
+                          className="cart-order-row-remove"
+                          onClick={() => removeCartItem(item.itemId)}
+                          aria-label={`Remove ${item.name}`}
+                        >
+                          <TrashIcon className="cart-order-remove-icon" />
+                        </button>
                       </div>
-                    </div>
+                    </li>
                   );
-                })
-              )}
-            </div>
-          </div>
-        </main>
-
-        {/* RIGHT: Cart Panel */}
-        <aside className={`cart-panel ${showCart ? '' : 'collapsed'}`}>
-          <div className="cart-panel-header">
-            <span className="cart-title">Cart {cartItems.length > 0 ? `(${cartItems.length})` : ''}</span>
-            {cartItems.length > 0 && (
-              <label className="cart-select-all">
-                <input type="checkbox" checked={allChecked} onChange={toggleSelectAll} />
-                All
-              </label>
-            )}
-          </div>
-
-          <div className="cart-rows-scroll">
-            {cartItems.length === 0 ? (
-              <div className="cart-empty">
-                <div className="cart-empty-icon">🛒</div>
-                <p>Add items from the menu</p>
-              </div>
-            ) : (
-              cartItems.map(item => (
-                <div key={item.itemId} className={`p2-cart-row ${item.isChecked ? 'checked' : ''}`}>
-                  <input
-                    type="checkbox"
-                    className="cart-checkbox"
-                    checked={item.isChecked}
-                    onChange={() => toggleCheck(item.itemId)}
-                  />
-                  <img src={item.imageUrl} alt="" className="cart-thumb"
-                    onError={e => { e.target.style.display = 'none'; }} />
-                  <div className="cart-item-name">{item.name}</div>
-                  <div className="cart-qty-ctrls">
-                    <button className="qty-btn" onClick={() => updateQty(item.itemId, -1)}>−</button>
-                    <span>{item.qty}</span>
-                    <button className="qty-btn" onClick={() => updateQty(item.itemId, 1)}>+</button>
-                  </div>
-                  <div className="cart-line-total">₹{item.price * item.qty}</div>
-                </div>
-              ))
+                })}
+              </ul>
             )}
           </div>
 
           <div className="cart-panel-footer">
+            {hasCartItems && (
+              <div className="cart-order-summary">
+                {!hasChecked && (
+                  <p className="cart-select-hint">Select items to send to kitchen</p>
+                )}
+                <div className="cart-summary-row">
+                  <span className="cart-summary-label">
+                    Subtotal{hasChecked ? ` (${checkedItems.length} ${checkedItems.length === 1 ? 'item' : 'items'})` : ''}
+                  </span>
+                  <span className="cart-summary-value">{formatCartAmount(checkedTotal)}</span>
+                </div>
+                <div className="cart-summary-row cart-summary-row--total">
+                  <span className="cart-summary-label">Total</span>
+                  <span className={`cart-summary-value ${checkedTotalPulse ? 'cart-summary-value--pulse' : ''}`}>
+                    {formatCartAmount(checkedTotal)}
+                  </span>
+                </div>
+              </div>
+            )}
+
             <textarea
-              className="sp-instructions"
-              placeholder="Special instructions (optional)"
-              rows={2}
+              className="cart-instructions"
+              placeholder="Add special instructions…"
+              rows={3}
               value={specialInstructions}
               onChange={e => setSpecialInstructions(e.target.value)}
             />
-            <div className="cart-subtotal-row">
-              {hasChecked
-                ? `${checkedItems.length} item${checkedItems.length > 1 ? 's' : ''} · ₹${checkedTotal}`
-                : 'Select items to send to kitchen'}
-            </div>
+
             <button
-              className={`submit-kot-btn ${hasChecked ? 'active-green' : ''}`}
-              disabled={!hasChecked}
+              type="button"
+              className={`send-kot-btn ${hasChecked ? 'send-kot-btn--active' : 'send-kot-btn--inactive'}`}
+              disabled={!hasChecked || kotSubmitting}
               onClick={submitKOT}
             >
-              Send to Kitchen
+              {kotSubmitting ? (
+                <SpinnerIcon />
+              ) : (
+                <>
+                  <span>Send to Kitchen</span>
+                  <SendArrowIcon />
+                </>
+              )}
             </button>
           </div>
         </aside>
 
       </div>
+
+      {cartDrawerOpen && (
+        <div
+          className="cart-drawer-backdrop"
+          onClick={closeCartDrawer}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Tablet: floating cart opener */}
+      <button
+        type="button"
+        className="floating-cart-btn"
+        onClick={openCartDrawer}
+        aria-label={`Open cart, ${cartQty} items`}
+      >
+        <span className="floating-cart-btn-icon" aria-hidden="true">🛒</span>
+        {cartQty > 0 && (
+          <span className={`floating-cart-badge ${cartBadgePop ? 'floating-cart-badge--pop' : ''}`}>
+            {cartQty}
+          </span>
+        )}
+      </button>
+
+      {/* Mobile: sticky cart bar */}
+      <button
+        type="button"
+        className="mobile-cart-bar"
+        onClick={openCartDrawer}
+        aria-label={`View cart, ${cartQty} items, total ₹${cartTotal.toFixed(0)}`}
+      >
+        <span className="mobile-cart-bar-count">
+          {cartQty} {cartQty === 1 ? 'item' : 'items'}
+        </span>
+        <span className={`mobile-cart-bar-total ${cartTotalPulse ? 'mobile-cart-bar-total--pulse' : ''}`}>
+          ₹{cartTotal.toFixed(0)}
+        </span>
+        <span className="mobile-cart-bar-cta">View cart</span>
+      </button>
 
       {/* ══ Summary Modal ══ */}
       {showSummary && (
@@ -848,7 +1638,7 @@ function OrderPage() {
           <div className="summary-modal" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
               <h3>Consumed — Table {id}</h3>
-              <button className="summary-close" onClick={() => setShowSummary(false)}>✕</button>
+              <button type="button" className="summary-close" onClick={() => setShowSummary(false)} aria-label="Close summary">✕</button>
             </div>
             <div className="summary-modal-body">
 
@@ -859,7 +1649,7 @@ function OrderPage() {
                 ) : (
                   <div className="kot-log">
                     {openKots.map((kot, idx) => (
-                      <div key={idx} className="log-kot-card">
+                      <div key={kot?._docId || kot?.id || `open-kot-${idx}`} className="log-kot-card">
                         <div className="log-kot-label">KOT #{(kot._docId || '').slice(-4).toUpperCase()}</div>
                         {kot.items?.map((item, i) => {
                           const isResolved  = ['done', 'removed', 'out_of_stock'].includes(item.status);
@@ -867,8 +1657,10 @@ function OrderPage() {
                           const hasCancelReq = cancellationRequests.some(r =>
                             r.originalKotId === kot._docId && r.itemId === item.itemId && r.status === 'pending_approval'
                           );
+                          const itemKey =
+                            (kot?._docId && item?.itemId != null) ? `${kot._docId}:${item.itemId}` : `${kot?._docId || kot?.id || 'kot'}:${i}`;
                           return (
-                            <div key={i} className={`log-item-row ${isResolved ? 'resolved-row' : ''}`}>
+                            <div key={itemKey} className={`log-item-row ${isResolved ? 'resolved-row' : ''}`}>
                               <div className="log-item-info">
                                 <span>{item.name} <span className="log-qty">×{item.qty}</span></span>
                                 <span className="log-price">₹{item.price * item.qty}</span>
@@ -906,7 +1698,7 @@ function OrderPage() {
                       ) || [];
                       if (displayItems.length === 0) return null;
                       return (
-                        <div key={idx} className="log-kot-card">
+                        <div key={kot?._docId || kot?.id || `cleared-kot-${idx}`} className="log-kot-card">
                           <div className="log-kot-label">KOT #{(kot._docId || '').slice(-4).toUpperCase()}</div>
                           {displayItems.map((item, i) => {
                             const isPartial  = item.status === 'partially_removed';
@@ -914,8 +1706,10 @@ function OrderPage() {
                             const effQty     = isPartial ? (item.finalQty ?? 0) : item.qty;
                             const displayQty = isRemoved ? item.qty : isPartial ? effQty : item.qty;
                             const note       = partialRemovalCaption(item);
+                            const itemKey =
+                              (kot?._docId && item?.itemId != null) ? `${kot._docId}:${item.itemId}` : `${kot?._docId || kot?.id || 'kot'}:${i}`;
                             return (
-                              <div key={i} className={`log-item-row${isRemoved ? ' removed-entirely-row' : ''}`}>
+                              <div key={itemKey} className={`log-item-row${isRemoved ? ' removed-entirely-row' : ''}`}>
                                 <div className="log-item-info log-item-info--stack">
                                   <div>
                                     <span className={isRemoved ? 'log-item-struck' : ''}>
@@ -953,6 +1747,20 @@ function OrderPage() {
             </div>
             {hasConsumed && (
               <div className="summary-modal-footer">
+                {!pendingBillRemovalRequest ? (
+                  <button
+                    type="button"
+                    className="topbar-btn topbar-btn--warn summary-removal-btn"
+                    onClick={() => {
+                      setShowSummary(false);
+                      openRemovalModal();
+                    }}
+                  >
+                    Request Removal
+                  </button>
+                ) : (
+                  <p className="summary-removal-pending">Removal request pending manager approval…</p>
+                )}
                 <div className="billing-row">
                   <span>Subtotal</span><span>₹{consumedSubtotal.toFixed(2)}</span>
                 </div>
@@ -1032,7 +1840,7 @@ function OrderPage() {
           <div className="summary-modal" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
               <h3>Request Item Removal from Bill</h3>
-              <button className="summary-close" onClick={() => setShowRemovalModal(false)}>✕</button>
+              <button type="button" className="summary-close" onClick={() => setShowRemovalModal(false)} aria-label="Close removal request">✕</button>
             </div>
             <div className="summary-modal-body">
               <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>
@@ -1073,7 +1881,7 @@ function OrderPage() {
                 />
               </div>
               {removalMessage && (
-                <div style={{ marginTop: '0.5rem', padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-sm)', background: removalMessage.includes('sent') ? 'rgba(45,122,79,0.12)' : 'rgba(192,57,43,0.1)', color: removalMessage.includes('sent') ? 'var(--success)' : 'var(--danger)', fontSize: '0.82rem' }}>
+                <div style={{ marginTop: '0.5rem', padding: '0.45rem 0.75rem', borderRadius: 'var(--radius-sm)', background: removalMessage.includes('sent') ? 'var(--color-success-bg)' : 'var(--color-danger-bg)', color: removalMessage.includes('sent') ? 'var(--color-success)' : 'var(--color-danger)', fontSize: '0.82rem' }}>
                   {removalMessage}
                 </div>
               )}
@@ -1112,7 +1920,7 @@ function OrderPage() {
         </div>
         <div style={{ borderBottom: '1px dashed black', margin: '10px 0' }} />
         {combinedConsumedItems.map((item, idx) => (
-          <div key={idx} className="rcpt-item-row">
+          <div key={`${item?.kotId ?? ''}:${item?.itemId ?? item?.name ?? 'item'}:${idx}`} className="rcpt-item-row">
             <div className="rcpt-item-name">{item.name}</div>
             <div className="rcpt-item-calc">{item.qty} × ₹{item.price}</div>
             <div>₹{item.qty * item.price}</div>

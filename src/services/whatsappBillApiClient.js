@@ -14,25 +14,29 @@ export async function requestSendBillOnWhatsApp({
   customerPhone,
   customerName,
 }) {
-  const res = await fetch('/api/whatsapp/send-bill', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      billId,
-      tableNumber,
-      clearedKots,
-      serviceChargePct,
-      taxPct,
-      discountPercent,
-      waiterName,
-      customerPhone,
-      customerName: customerName?.trim() || undefined,
-    }),
-  });
+  try {
+    const res = await fetch('/api/whatsapp/send-bill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        billId,
+        tableNumber,
+        clearedKots,
+        serviceChargePct,
+        taxPct,
+        discountPercent,
+        waiterName,
+        customerPhone,
+        customerName: customerName?.trim() || undefined,
+      }),
+    });
 
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(data.error || `WhatsApp send failed (${res.status})`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || `WhatsApp send failed (${res.status})`);
+    }
+    return data;
+  } catch (err) {
+    throw err;
   }
-  return data;
 }

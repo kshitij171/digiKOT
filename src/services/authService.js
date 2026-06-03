@@ -1,5 +1,5 @@
 import { userRepository } from '../repositories/userRepository';
-import { getRouteForRole, hashPin, normalizePhone, validatePin } from '../lib/utils/auth';
+import { getRouteForRole, normalizePhone } from '../lib/utils/auth';
 
 // Fallback demo users — only used if the database is unreachable.
 // Each user has a unique PIN so the PIN-based lookup works correctly.
@@ -13,27 +13,30 @@ const DEMO_USERS = [
 
 export const authService = {
   /**
-   * Look up a user purely by their 4-digit PIN.
-   * Returns the user object on success; throws with a generic message on failure
-   * so callers never learn whether the PIN exists but belongs to an inactive user.
+   * Looks up a user by PIN hash.
+   * Returns the user object on success; throws with a generic message on failure.
+   * @param {string} pinHash - Hashed PIN from the component boundary.
+   * @returns {Promise<object>} User row.
    */
-  async loginWithPin(pin) {
-    const pinHash = await hashPin(pin);
-
-    let user = null;
+  async loginWithPinHash(pinHash) {
     try {
-      user = await userRepository.findByPinHash(pinHash);
-    } catch (error) {
-      console.warn('DB lookup failed, using demo users.', error);
-      user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
-    }
+      let user = null;
+      try {
+        user = await userRepository.findByPinHash(pinHash);
+      } catch (error) {
+        console.warn('DB lookup failed, using demo users.', error);
+        user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
+      }
 
-    if (!user) {
-      user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
-    }
+      if (!user) {
+        user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
+      }
 
-    if (!user || !user.active) throw new Error('Incorrect PIN.');
-    return user;
+      if (!user || !user.active) throw new Error('Incorrect PIN.');
+      return user;
+    } catch (err) {
+      throw err;
+    }
   },
 
   getRouteForRole,
@@ -41,70 +44,82 @@ export const authService = {
   /**
    * Manager resets a waiter's PIN by their username.
    * Also validates the new PIN is not already in use by another active user.
+   * @param {object} args
+   * @param {string} args.username
+   * @param {string} args.newPinHash - Hashed new PIN.
+   * @returns {Promise<void>}
    */
-  async resetPinByUsername({ username, newPin }) {
-    if (!username) throw new Error('Username is required.');
-    if (!validatePin(newPin)) throw new Error('PIN must be exactly 4 digits.');
-
-    const normalizedUsername = String(username).trim().toLowerCase();
-
-    let user = null;
+  async resetPinByUsername({ username, newPinHash }) {
     try {
-      user = await userRepository.findByUsername(normalizedUsername);
-    } catch (error) {
-      console.warn('DB lookup failed for PIN reset.', error);
-    }
+      if (!username) throw new Error('Username is required.');
+      if (!newPinHash) throw new Error('PIN must be exactly 4 digits.');
 
-    if (!user) {
-      user = DEMO_USERS.find((u) => u.username === normalizedUsername) || null;
-    }
-    if (!user) throw new Error('No staff member found with that username.');
+      const normalizedUsername = String(username).trim().toLowerCase();
 
-    const newPinHash = await hashPin(newPin);
+      let user = null;
+      try {
+        user = await userRepository.findByUsername(normalizedUsername);
+      } catch (error) {
+        console.warn('DB lookup failed for PIN reset.', error);
+      }
 
-    let conflict = null;
-    try {
-      conflict = await userRepository.findActivePinHash(newPinHash);
-    } catch (_) { /* ignore */ }
+      if (!user) {
+        user = DEMO_USERS.find((u) => u.username === normalizedUsername) || null;
+      }
+      if (!user) throw new Error('No staff member found with that username.');
 
-    if (conflict && conflict.id !== user.id) {
-      throw new Error('This PIN is already in use. Choose a different one.');
-    }
+      let conflict = null;
+      try {
+        conflict = await userRepository.findActivePinHash(newPinHash);
+      } catch (_) { /* ignore */ }
 
-    if (DEMO_USERS.some((u) => u.id === user.id)) {
-      user.pin_hash = newPinHash;
-      return;
-    }
-    const { rowsAffected } = await userRepository.updatePinByUserId(user.id, newPinHash);
-    console.log(`[authService] PIN update success for username: ${normalizedUsername}, rows affected: ${rowsAffected}`);
-    if (rowsAffected === 0) {
-      throw new Error(
-        `PIN update failed: no record was modified for username "${normalizedUsername}". Please try again or contact a manager.`
-      );
+      if (conflict && conflict.id !== user.id) {
+        throw new Error('This PIN is already in use. Choose a different one.');
+      }
+
+      if (DEMO_USERS.some((u) => u.id === user.id)) {
+        user.pin_hash = newPinHash;
+        return;
+      }
+      const { rowsAffected } = await userRepository.updatePinByUserId(user.id, newPinHash);
+      if (rowsAffected === 0) {
+        throw new Error(
+          `PIN update failed: no record was modified for username "${normalizedUsername}". Please try again or contact a manager.`
+        );
+      }
+    } catch (err) {
+      throw err;
     }
   },
 
   /**
    * Legacy helper kept for authService.resetPinByPhone calls that may exist elsewhere.
+   * @param {object} args
+   * @param {string} args.phone
+   * @param {string} [args.role]
+   * @param {string} args.newPinHash - Hashed new PIN.
+   * @returns {Promise<void>}
    */
-  async resetPinByPhone({ phone, role, newPin }) {
-    const normalizedPhone = normalizePhone(phone);
-    if (!normalizedPhone) throw new Error('Phone number is required.');
-    if (!validatePin(newPin)) throw new Error('PIN must be exactly 4 digits.');
-
-    const user = await userRepository.findByPhoneAndRole(normalizedPhone, role);
-    if (!user) throw new Error('No active staff found for this phone and role.');
-
-    const newPinHash = await hashPin(newPin);
-    let conflict = null;
+  async resetPinByPhone({ phone, role, newPinHash }) {
     try {
-      conflict = await userRepository.findActivePinHash(newPinHash);
-    } catch (_) { /* ignore */ }
+      const normalizedPhone = normalizePhone(phone);
+      if (!normalizedPhone) throw new Error('Phone number is required.');
+      if (!newPinHash) throw new Error('PIN must be exactly 4 digits.');
 
-    if (conflict && conflict.id !== user.id) {
-      throw new Error('This PIN is already in use. Choose a different one.');
+      const user = await userRepository.findByPhoneAndRole(normalizedPhone, role);
+      if (!user) throw new Error('No active staff found for this phone and role.');
+      let conflict = null;
+      try {
+        conflict = await userRepository.findActivePinHash(newPinHash);
+      } catch (_) { /* ignore */ }
+
+      if (conflict && conflict.id !== user.id) {
+        throw new Error('This PIN is already in use. Choose a different one.');
+      }
+
+      await userRepository.updatePinByUserId(user.id, newPinHash);
+    } catch (err) {
+      throw err;
     }
-
-    await userRepository.updatePinByUserId(user.id, newPinHash);
   },
 };

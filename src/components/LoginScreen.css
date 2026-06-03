@@ -1,109 +1,105 @@
 /* ═══════════════════════════════════════════════════════════
-   OPULENCE — PIN Login Screen (Luxury Dark Theme)
+   OPULENCE — PIN Login Screen (Premium Light)
    ═══════════════════════════════════════════════════════════ */
 
 .numpad-screen {
   min-height: 100vh;
-  background: var(--brand-dark);
+  background: var(--color-bg-app);
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: var(--space-4);
   position: relative;
   overflow: hidden;
 }
 
-/* Subtle background texture */
 .numpad-screen::before {
   content: '';
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(ellipse at 20% 50%, rgba(201,168,76,0.06) 0%, transparent 60%),
-    radial-gradient(ellipse at 80% 50%, rgba(201,168,76,0.04) 0%, transparent 60%);
+    radial-gradient(ellipse at 20% 50%, color-mix(in srgb, var(--color-brand-primary) 8%, transparent) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 50%, color-mix(in srgb, var(--color-brand-primary) 5%, transparent) 0%, transparent 60%);
   pointer-events: none;
 }
 
 .numpad-card {
   position: relative;
-  background: var(--brand-navy);
-  border: 1px solid rgba(201,168,76,0.25);
-  border-radius: 20px;
-  padding: 2.5rem 2rem;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8) var(--space-6);
   width: 100%;
   max-width: 340px;
-  box-shadow:
-    0 0 0 1px rgba(201,168,76,0.08),
-    0 20px 60px rgba(0,0,0,0.5),
-    0 2px 4px rgba(0,0,0,0.3);
+  box-shadow: var(--shadow-lg);
   text-align: center;
 }
 
-/* ── Logo / Brand ───────────────────────────────────────── */
 .numpad-logo {
   width: 54px;
   height: 54px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--color-brand-primary), var(--color-brand-primary-dark));
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 0.85rem;
-  box-shadow: 0 4px 20px rgba(201,168,76,0.35);
+  margin: 0 auto var(--space-3);
+  box-shadow: var(--shadow-md);
 }
 
 .numpad-logo-letter {
+  font-family: var(--font-display);
   font-size: 1.6rem;
   font-weight: 900;
-  color: var(--brand-dark);
+  color: var(--color-text-inverse);
   font-style: italic;
   line-height: 1;
 }
 
 .numpad-brand {
-  color: var(--gold);
+  font-family: var(--font-display);
+  color: var(--color-brand-primary);
   font-size: 1.2rem;
   font-weight: 800;
   letter-spacing: 0.2em;
   text-transform: uppercase;
-  margin-bottom: 0.2rem;
+  margin-bottom: var(--space-1);
 }
 
 .numpad-subtitle {
-  color: rgba(255,255,255,0.4);
+  color: var(--color-text-muted);
   font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  margin-bottom: 1.75rem;
+  margin-bottom: var(--space-6);
 }
 
-/* ── PIN dots ───────────────────────────────────────────── */
 .numpad-dots {
   display: flex;
   justify-content: center;
-  gap: 0.85rem;
-  margin-bottom: 1.25rem;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 
 .pin-dot {
   width: 14px;
   height: 14px;
-  border-radius: 50%;
-  border: 2px solid rgba(201,168,76,0.4);
+  border-radius: var(--radius-full);
+  border: 2px solid color-mix(in srgb, var(--color-brand-primary) 45%, transparent);
   background: transparent;
-  transition: all 200ms ease;
+  transition: all var(--t-normal);
 }
 
 .pin-dot.filled {
-  background: var(--gold);
-  border-color: var(--gold);
-  box-shadow: 0 0 8px rgba(201,168,76,0.5);
+  background: var(--color-brand-primary);
+  border-color: var(--color-brand-primary);
+  box-shadow: var(--shadow-sm);
   transform: scale(1.1);
 }
 
 .pin-dot.loading {
-  background: rgba(255,255,255,0.2);
-  border-color: rgba(255,255,255,0.3);
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
   animation: dot-pulse 0.6s ease infinite alternate;
 }
 
@@ -112,15 +108,14 @@
   to   { opacity: 1; }
 }
 
-/* ── Error message ──────────────────────────────────────── */
 .numpad-error {
-  background: rgba(192,57,43,0.15);
-  border: 1px solid rgba(192,57,43,0.4);
-  color: #fca5a5;
-  padding: 0.45rem 0.85rem;
-  border-radius: 8px;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+  color: var(--color-danger);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   font-size: 0.82rem;
-  margin-bottom: 1rem;
+  margin-bottom: var(--space-4);
   animation: shake 0.3s ease;
 }
 
@@ -130,22 +125,21 @@
   75%      { transform: translateX(6px); }
 }
 
-/* ── Numpad grid ────────────────────────────────────────── */
 .numpad-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 0.65rem;
+  gap: var(--space-3);
 }
 
 .numpad-key {
   aspect-ratio: 1.2;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   font-size: 1.35rem;
   font-weight: 700;
   cursor: pointer;
   border: none;
   font-family: inherit;
-  transition: all 150ms ease;
+  transition: all var(--t-fast);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -155,34 +149,34 @@
 .numpad-key.empty { background: transparent; cursor: default; pointer-events: none; }
 
 .numpad-key.digit-key {
-  background: rgba(255,255,255,0.07);
-  color: var(--text-light);
-  border: 1px solid rgba(255,255,255,0.1);
+  background: var(--color-bg-subtle);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border-default);
 }
 
 .numpad-key.digit-key:hover:not(:disabled) {
-  background: rgba(201,168,76,0.15);
-  border-color: rgba(201,168,76,0.4);
-  color: var(--gold);
+  background: var(--color-brand-primary-light);
+  border-color: var(--color-brand-primary);
+  color: var(--color-brand-primary-dark);
   transform: scale(1.04);
 }
 
 .numpad-key.digit-key:active:not(:disabled) {
   transform: scale(0.96);
-  background: rgba(201,168,76,0.25);
+  background: color-mix(in srgb, var(--color-brand-primary-light) 80%, var(--color-brand-primary) 20%);
 }
 
 .numpad-key.del-key {
-  background: rgba(255,255,255,0.04);
-  color: rgba(255,255,255,0.5);
-  border: 1px solid rgba(255,255,255,0.08);
+  background: var(--color-bg-app);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-default);
   font-size: 1rem;
 }
 
 .numpad-key.del-key:hover:not(:disabled) {
-  background: rgba(192,57,43,0.15);
-  border-color: rgba(192,57,43,0.4);
-  color: #fca5a5;
+  background: var(--color-danger-bg);
+  border-color: color-mix(in srgb, var(--color-danger) 35%, transparent);
+  color: var(--color-danger);
 }
 
 .numpad-key:disabled {
@@ -191,10 +185,9 @@
   transform: none !important;
 }
 
-/* ── Spinner ────────────────────────────────────────────── */
 .numpad-spinner {
-  margin-top: 1rem;
-  color: var(--gold);
+  margin-top: var(--space-4);
+  color: var(--color-brand-primary);
   font-size: 0.8rem;
   letter-spacing: 0.08em;
   animation: fade-pulse 1s ease infinite alternate;
@@ -205,20 +198,19 @@
   to   { opacity: 1; }
 }
 
-/* ── Gold divider ───────────────────────────────────────── */
 .numpad-divider {
   height: 1px;
-  background: linear-gradient(to right, transparent, rgba(201,168,76,0.3), transparent);
-  margin: 1.5rem 0 0.5rem;
+  background: linear-gradient(to right, transparent, var(--color-brand-primary), transparent);
+  margin: var(--space-6) 0 var(--space-2);
+  opacity: 0.35;
 }
 
-/* ── Compat class (used in ManagerApp for validation errors) */
 .login-error {
-  background: rgba(192,57,43,0.12);
-  border: 1px solid rgba(192,57,43,0.35);
-  color: #f87171;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  background: var(--color-danger-bg);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  color: var(--color-danger);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   font-size: 0.85rem;
-  margin-bottom: 0.75rem;
+  margin-bottom: var(--space-3);
 }
