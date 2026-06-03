@@ -63,7 +63,10 @@ export default function AuditBillDetailPanel({ pct, auditBill }) {
       ) : (
         <ul className="audit-bill-lines">
           {lines.map((line, idx) => (
-            <li key={idx} className={`audit-bill-line audit-bill-line--${line.kind}`}>
+            <li
+              key={`${bill?.id || 'bill'}:${line.kind}:${line.kotLabel || ''}:${itemDisplayLabel(line)}:${line.qty}:${idx}`}
+              className={`audit-bill-line audit-bill-line--${line.kind}`}
+            >
               {line.kind === 'served' && (
                 <>
                   <div className="audit-bill-line-main">

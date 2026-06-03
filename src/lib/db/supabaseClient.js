@@ -23,4 +23,4 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
   console.info('[Supabase] API URL:', supabaseUrl);
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey || '');
+export const supabase = createClient(supabaseUrl || '', supabaseAnonKey || '');

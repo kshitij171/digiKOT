@@ -25,7 +25,7 @@ export default function NotificationCenter() {
       ) : (
         <div style={{ display: 'grid', gap: '0.75rem' }}>
           {items.map((n) => (
-            <div key={n.id} style={{ border: '1px solid #334155', borderRadius: 8, padding: '0.75rem' }}>
+            <div key={n.id} style={{ border: '1px solid var(--color-border-default)', borderRadius: 'var(--radius-sm)', padding: '0.75rem' }}>
               <div><strong>{n.event_type}</strong></div>
               <div>Table: {n.table_number || '-'}</div>
               <div style={{ opacity: 0.75 }}>{new Date(n.created_at).toLocaleString()}</div>

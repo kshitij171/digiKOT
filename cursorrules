@@ -1,0 +1,486 @@
+# ============================================================
+#  KOT SYSTEM — CURSOR AI RULES
+#  Applies to: Vite + React 18, Supabase JS v2, react-router-dom v6
+#  Team: Small team. Enforce these rules on every file touched.
+# ============================================================
+
+
+# ────────────────────────────────────────────────────────────
+# 0. GROUND RULES FOR THE AI AGENT
+# ────────────────────────────────────────────────────────────
+
+- Never silently skip a rule because it feels inconvenient. If a rule
+  conflicts with a request, surface the conflict and ask.
+- Never assume "it worked before so it's fine." Validate against these
+  rules on every edit, not just new files.
+- When unsure about business logic (billing totals, cancel flow,
+  role permissions), STOP and ask the developer before generating code.
+- Prefer small, focused changes over large rewrites. One concern per PR.
+- All generated code must be immediately runnable — no placeholder
+  TODOs left in logic paths.
+
+
+# ────────────────────────────────────────────────────────────
+# 1. ARCHITECTURE & LAYER RULES
+# ────────────────────────────────────────────────────────────
+
+## 1.1 Strict layer separation
+
+COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
+
+- Components (src/components/) MUST NOT import from src/lib/db/,
+  call supabaseClient directly, or write raw Supabase queries.
+- Components MUST NOT import repositories directly. Always go through
+  a service.
+- Services (src/services/) orchestrate business logic, call one or
+  more repositories, and handle cross-cutting concerns (notifications,
+  audit logging, error mapping).
+- Repositories (src/repositories/) are the ONLY layer allowed to call
+  supabaseClient or dbAdapter directly. Complex multi-table queries
+  (e.g. bills joined with bill_items) are acceptable here; they do not
+  need to go through dbAdapter if the query is non-trivial.
+- src/lib/db/dbAdapter.js is a thin wrapper for simple single-table
+  CRUD. Repositories may bypass it for joins, RPCs, or upserts.
+- Realtime subscriptions belong in src/realtime/ or inside services
+  that call the realtime adapter. Never set up a Supabase channel
+  directly inside a component.
+
+## 1.2 Context usage
+
+- AuthContext (src/context/AuthContext.jsx) is the ONLY global context.
+  Do not create additional React contexts without explicit approval.
+- Never read localStorage directly in a component for auth state.
+  Always consume AuthContext via useContext(AuthContext).
+- The localStorage key "appSession" is owned exclusively by
+  AuthContext. No other file may read or write it.
+
+## 1.3 Routing & role enforcement
+
+- Every protected route MUST be wrapped in <ProtectedRoute
+  requiredRole="...">. Never add a route that skips this wrapper.
+- ROLE_HOME mappings (waiter → /waiter, kitchen_supervisor → /kitchen,
+  manager → /manager) must not be changed without updating the
+  ProtectedRoute logic and the AuthContext login redirect together.
+- Never derive the current role from the URL path. Always read it from
+  AuthContext.
+
+
+# ────────────────────────────────────────────────────────────
+# 2. SECURITY RULES
+# ────────────────────────────────────────────────────────────
+
+## 2.1 Environment variables
+
+- Supabase URL and anon key MUST come from Vite env vars:
+    VITE_SUPABASE_URL
+    VITE_SUPABASE_ANON_KEY
+- Never hardcode these values anywhere in source code, comments,
+  or test files.
+- Never log, console.log, or expose env vars at runtime.
+- Do not add any other secrets (service role key, JWT secret, etc.)
+  to any frontend file. If a privileged operation is needed, it must
+  go through a Supabase Edge Function or a backend route — never the
+  frontend.
+
+## 2.2 No Row Level Security — compensate in code
+
+- This project has NO Supabase RLS policies. Access control is
+  enforced entirely in the application layer.
+- Every repository function that fetches data for a specific role MUST
+  filter by the appropriate field (e.g. waiter_user_id, session_id)
+  so users cannot accidentally fetch another user's records.
+- Never write a repository function that returns all rows of a
+  sensitive table (users, bills, kots) without a deliberate filter
+  or a confirmed manager-only caller.
+- If RLS is ever enabled in a migration, remove the corresponding
+  in-app filters only after confirming the RLS policy covers the
+  same scope.
+
+## 2.3 PIN & authentication security
+
+- PIN values must NEVER appear in plaintext in any variable, log,
+  state object, or network payload. Only pin_hash travels between
+  layers.
+- The hashing utility in src/lib/utils/auth.js is the single source
+  of truth for PIN hashing. Do not reimplement hashing inline.
+- The uniqueness constraint on pin_hash is "among active=true users."
+  Any new PIN-related query must include the active=true filter to
+  respect this constraint.
+- Soft-delete means deleted_at IS NOT NULL. Every query that lists
+  or authenticates users MUST include a deleted_at IS NULL filter
+  (or equivalent). Never query users without this guard unless the
+  intent is explicitly to include deleted users (e.g. audit display).
+- The demo/offline fallback users in authService.js must never have
+  real PINs or real data. If the fallback list is modified, it must
+  only contain clearly fake identifiers.
+
+## 2.4 Input handling
+
+- Never interpolate user-supplied strings directly into Supabase
+  filter values without going through the Supabase JS client's
+  parameterised API (.eq(), .filter(), etc.).
+- Never use .rpc() with raw string concatenation for user inputs.
+- Numeric inputs (qty, price, discount) must be parsed and validated
+  (Number.isFinite, value > 0) before being written to the database.
+- Role values accepted from any input must be validated against the
+  fixed enum: ['waiter', 'kitchen_supervisor', 'manager']. Reject
+  anything outside this set.
+
+## 2.5 Data exposure
+
+- Never log full user objects, bill objects, or KOT objects to the
+  console in production paths. Use targeted logging (e.g. just the ID).
+- Strip any console.log statements that were added for debugging
+  before committing. A lint rule or comment marker (// DEBUG) must
+  flag these.
+
+
+# ────────────────────────────────────────────────────────────
+# 3. DATABASE & SCHEMA RULES
+# ────────────────────────────────────────────────────────────
+
+## 3.1 Canonical schema source
+
+- sql/schema.sql is the canonical, consolidated schema. It is the
+  reference for column names, types, constraints, and relationships.
+- supabase/migrations/*.sql are the incremental change history.
+  When they conflict with sql/schema.sql (which should not happen),
+  escalate — do not guess which is correct.
+- Never infer column names from component code or variable names.
+  Always verify against sql/schema.sql before writing a query.
+
+## 3.2 Schema change policy (MODERATE)
+
+- The AI agent MUST NOT generate or apply migration files without
+  explicit developer instruction.
+- If a feature requires a schema change, the agent must:
+    1. Clearly state what change is needed and why.
+    2. Write the migration SQL as a separate artifact for review.
+    3. Wait for developer approval before writing any application
+       code that depends on the new column/table.
+- Never add a column in application code and assume it exists in the
+  database. Schema and application changes must be coordinated.
+- New tables must be added to the Supabase Realtime publication if
+  they need live updates. Call this out explicitly in the migration.
+- New tables that need grants must include:
+    GRANT SELECT, INSERT, UPDATE, DELETE ON <table> TO anon, authenticated;
+
+## 3.3 ID generation
+
+- All domain table PKs are app-generated text IDs. Use the project's
+  existing ID generation utility (if present) or crypto.randomUUID().
+  Never use Math.random() for IDs.
+- Never assume a database-generated serial/sequence ID on these tables.
+
+## 3.4 Soft deletes
+
+- The users table uses soft delete (deleted_at). Do not hard-delete
+  user records unless explicitly requested and the implications are
+  understood.
+- No other table currently uses soft delete. Do not add deleted_at to
+  other tables without a schema migration and developer sign-off.
+
+## 3.5 Snapshots / denormalised fields
+
+- item_name_snapshot and price_snapshot on kot_items, and
+  waiter_username on kots/bills, are intentionally denormalised.
+  They capture state at the time of the event and must NOT be updated
+  retroactively if the source record changes.
+- Never join to get the "current" menu item name/price and overwrite
+  a snapshot field.
+
+## 3.6 Composite identifiers
+
+- cancel_requests.kot_item_id, bill_items.kot_item_id, and
+  postprep_adjustments.kot_item_id are NOT foreign keys — they store
+  a composite string (e.g. "${kotId}:${menuItemId}"). Do not attempt
+  to FK-constrain or normalise these without a migration.
+
+
+# ────────────────────────────────────────────────────────────
+# 4. AUTHENTICATION & SESSION RULES
+# ────────────────────────────────────────────────────────────
+
+- Login must always call authService.loginWithPinHash() — never call
+  userRepository.findByPinHash() directly from a component or context.
+- On successful login, AuthContext must persist { user, role,
+  waiterSessionId } to localStorage under the key "appSession" and
+  open a waiter_sessions record if the role is "waiter".
+- On logout, AuthContext must close the waiter_sessions record (set
+  logged_out_at) before clearing localStorage. Never clear localStorage
+  first — a crash mid-logout would leave an open session.
+- Session restoration on app load must re-validate the stored role
+  against the enum. If the role is unrecognised, clear the session
+  and redirect to login.
+- Never trust the role from localStorage alone for sensitive
+  operations inside services. The service should confirm the calling
+  user's role via the context-supplied value, not re-read localStorage.
+
+
+# ────────────────────────────────────────────────────────────
+# 5. REALTIME & SUBSCRIPTION RULES
+# ────────────────────────────────────────────────────────────
+
+- Every Supabase realtime subscription opened in a component's
+  useEffect MUST return a cleanup function that calls .unsubscribe()
+  (or the equivalent channel removal). Failing to do so causes
+  duplicate events and memory leaks.
+- Use createSubscriptionController() (src/services/subscriptionController.js)
+  for any subscription that needs debounced reloads or polling
+  fallback. Do not reimplement debounce/polling inline.
+- Never open more than one channel per logical data concern per
+  component mount. If a component needs multiple subscriptions,
+  consolidate them or use the subscription controller.
+- When VITE_REALTIME_MODE=polling is set, the realtimeAdapter
+  automatically uses polling. Do not add manual polling loops that
+  bypass this adapter.
+- If a channel status becomes ERROR or CLOSED unexpectedly, log the
+  event with the channel name and table — do not silently swallow it.
+
+
+# ────────────────────────────────────────────────────────────
+# 6. BILLING & PRINT RULES
+# ────────────────────────────────────────────────────────────
+
+## 6.1 Bill creation guards
+
+- billingService.createBillForTable() must NEVER be called if any
+  KOT for the table has items in status 'pending'. The guard must
+  check this condition before creating the bill. If the guard is
+  modified, document the new pre-condition explicitly.
+- Bill totals (subtotal, service_charge, tax, total) must always be
+  computed server-side or in billingService — never computed inline
+  in a component and passed as-is to the repository.
+- All monetary arithmetic must use consistent decimal precision.
+  Use toFixed(2) or a dedicated rounding helper before writing to
+  the database. Never store a float with uncontrolled decimal places.
+
+## 6.2 Post-print modifications
+
+- Once a bill is printed (bill_status = 'printed'), items may only
+  be excluded via the bill_modification_requests flow (waiter requests
+  → manager approves). Direct updates to bill_items.include_in_bill
+  outside this flow are forbidden.
+- On approval of a bill_modification_request:
+    1. Set include_in_bill = false on the relevant bill_items.
+    2. Recalculate and update the bill totals atomically.
+    3. Write to audit_logs.
+    4. Notify the waiter via notificationService.
+  All four steps must succeed or none should be persisted (use a
+  Supabase transaction / sequential updates with rollback logging).
+- On rejection, only the bill_modification_request status is updated.
+  bill_items and bill totals must not be touched.
+
+## 6.3 Void & resettle
+
+- Voiding a bill (bill_status = 'void') requires voided_by,
+  voided_at, and void_reason to all be set together. Never set one
+  without the others.
+- Resettling requires resettled_by, resettled_at,
+  original_payment_method, and new_payment_method. Same rule —
+  all fields or none.
+
+## 6.4 Discounts
+
+- Discounts > 50% must be flagged in audit_logs with action
+  'high_discount'. This is a business rule — do not remove it.
+- Discounts of exactly 100% must be flagged separately as
+  'full_discount'. Do not merge these two audit categories.
+- discount_applied_by must always reference a valid manager user ID.
+  Never allow a waiter to apply discounts.
+
+## 6.5 Print trigger
+
+- window.print() must only be called after the bill record is
+  successfully persisted. Never call window.print() optimistically
+  before the database write resolves.
+- The print flow must be idempotent-safe: if the user prints twice,
+  the second print must not create a second bill record.
+
+
+# ────────────────────────────────────────────────────────────
+# 7. KOT & ORDER FLOW RULES
+# ────────────────────────────────────────────────────────────
+
+- KOT creation (kotService.createKotFromCart) must always:
+    1. Write the kots record.
+    2. Write all kot_items records.
+    3. Write a kot_actions record with action = 'created'.
+    4. Write an audit_logs record.
+  All four in sequence. If any step fails, log the failure with the
+  KOT ID and surface an error to the user — do not silently continue.
+- A KOT transitions to 'cleared' automatically when ALL its items
+  reach a terminal status (done, out_of_stock, cancelled, removed).
+  This logic must remain in the repository/service layer, not in
+  component state.
+- Never manually set a KOT to 'cleared' without checking all item
+  statuses first.
+- Cart data in localStorage is keyed per table. When a table is
+  cleared (kotService.clearTable), the corresponding localStorage
+  cart key must be deleted in the same operation. Never leave orphan
+  cart data in localStorage.
+- special_instructions on a KOT is user-supplied text. Treat it as
+  untrusted input — sanitise for display (no raw innerHTML) and do
+  not execute or eval it.
+
+
+# ────────────────────────────────────────────────────────────
+# 8. CANCELLATION FLOW RULES
+# ────────────────────────────────────────────────────────────
+
+- cancelService.requestCancel() creates a cancel_requests record with
+  status 'pending_approval'. It must not update kot_items directly.
+- cancelService.reviewCancel() is the only function allowed to set
+  kot_items.status = 'cancelled'. It must also:
+    1. Update the cancel_request status to 'approved'/'rejected'.
+    2. Notify the waiter.
+    3. Write to audit_logs and kot_actions.
+- A cancel request may only be reviewed once. Before calling
+  reviewCancel(), confirm the current status is 'pending_approval'.
+  Reject double-review attempts with a clear error, not silently.
+
+
+# ────────────────────────────────────────────────────────────
+# 9. NOTIFICATIONS & AUDIT RULES
+# ────────────────────────────────────────────────────────────
+
+- notificationService.createNotification() is the only way to write
+  to the notifications table. Never insert into notifications directly
+  from a repository other than notificationRepository.
+- auditService (or the equivalent audit writer) is the only way to
+  write to audit_logs. Never insert into audit_logs from a component.
+- Every mutation that has business significance (KOT created, item
+  marked done/OOS, cancel approved/rejected, bill printed, discount
+  applied, staff created/deleted) must produce an audit_logs entry.
+  Do not add new mutations without a corresponding audit write.
+- Audit log entries must include: actor_user_id, action, entity_type,
+  entity_id. before_json and after_json are optional but recommended
+  for bill and user mutations.
+
+
+# ────────────────────────────────────────────────────────────
+# 10. CODE QUALITY RULES
+# ────────────────────────────────────────────────────────────
+
+## 10.1 Error handling
+
+- Every async function in services and repositories must have a
+  try/catch. Errors must be either:
+    a) Re-thrown with a meaningful message (for the caller to handle), or
+    b) Returned as { data: null, error } objects if the layer uses
+       that pattern consistently.
+  Never silently swallow errors with an empty catch block.
+- Supabase calls return { data, error }. Always destructure and check
+  the error field before using data. Never assume data is non-null.
+- User-facing error messages must not expose internal Supabase error
+  strings, column names, or stack traces. Map them to friendly messages
+  in the service layer.
+
+## 10.2 No direct DOM manipulation
+
+- Never use document.getElementById, document.querySelector, or
+  direct DOM manipulation inside React components. Use refs (useRef)
+  if direct element access is truly needed.
+- The only exception is window.print() in the billing flow, which
+  is intentional.
+
+## 10.3 React-specific
+
+- Every useEffect that sets state must check if the component is
+  still mounted before calling setState (or use the AbortController /
+  cleanup pattern) to prevent state updates on unmounted components.
+- Do not use array index as the React key prop for lists that can
+  reorder or change (KOT items, menu items, tables). Use the item's
+  stable ID.
+- Avoid prop drilling more than two levels deep. If state needs to
+  travel further, it belongs in AuthContext or a service, not a chain
+  of props.
+
+## 10.4 Naming conventions
+
+- Services:        camelCase, verb-noun pattern (createKot, listBills)
+- Repositories:    camelCase, verb-noun pattern (findByPinHash, softDelete)
+- Components:      PascalCase (WaiterApp, KitchenApp)
+- DB column refs:  use the exact snake_case name from sql/schema.sql
+                   in all Supabase queries — no aliasing to camelCase
+                   in the query itself. Map to camelCase in the
+                   repository return value if needed.
+- Event handlers:  handle<Action> prefix (handleSubmitKot, handleClear)
+
+## 10.5 No magic numbers
+
+- Do not hardcode numeric business values inline (e.g. tax rate,
+  service charge %, discount thresholds). Extract them to a named
+  constant in src/lib/constants.js (or equivalent). If that file
+  does not exist, create it.
+
+## 10.6 Documentation
+
+- All exported functions in src/services/*.js and src/repositories/*.js
+  must have a JSDoc comment with:
+    - One-line description
+    - @param tags for each argument
+    - @returns tag describing the return value or shape
+  Example:
+    /**
+     * Creates a new KOT from the current cart and writes audit entries.
+     * @param {string} tableNumber - The table number for this KOT.
+     * @param {Array} cartItems - Array of { menuItemId, qty, price }.
+     * @param {string} waiterUserId - The authenticated waiter's user ID.
+     * @returns {Promise<{ data: object|null, error: string|null }>}
+     */
+- Components and utility functions do not require JSDoc but must have
+  meaningful function and variable names that make intent obvious.
+
+
+# ────────────────────────────────────────────────────────────
+# 11. STAFF MANAGEMENT RULES
+# ────────────────────────────────────────────────────────────
+
+- Only a manager role may call managerService functions. Services must
+  not enforce this with a hardcoded string — they must receive the
+  caller's role from the context and validate it.
+- User code generation (W###, K###, M###) must use the role prefix
+  that matches the user's role. Mismatched prefix + role is a data
+  integrity error, not a style issue.
+- PIN reset must generate a new hash via the auth utility and update
+  only pin_hash and updated_at. Never reset a PIN by reusing a
+  previous hash.
+- Soft delete sets deleted_at = now() and active = false. Both fields
+  must be set together. A user with deleted_at set but active = true
+  is an inconsistent state — flag it if encountered.
+
+
+# ────────────────────────────────────────────────────────────
+# 12. LOCAL-FIRST / MQTT SCHEMA
+# ────────────────────────────────────────────────────────────
+
+- The local-first schema (local-first/db/sql/) is a separate data
+  model with a different notifications shape and device/restaurant
+  scoping. Do not mix code or queries from this schema into the
+  Supabase application code.
+- If a feature is being built for the local-first mode, clearly
+  separate it into the local-first/ directory. Never have a single
+  repository function that conditionally targets both backends.
+
+
+# ────────────────────────────────────────────────────────────
+# 13. THINGS THE AI AGENT MUST NEVER DO
+# ────────────────────────────────────────────────────────────
+
+- NEVER add a Supabase service role key to any frontend file.
+- NEVER disable or remove the ProtectedRoute wrapper from any route.
+- NEVER delete or truncate audit_logs or notifications records as
+  part of a feature — these are append-only operational logs.
+- NEVER call window.location.reload() to work around a stale state
+  bug. Fix the subscription or state update instead.
+- NEVER use eval(), new Function(), or dangerouslySetInnerHTML with
+  user-supplied content.
+- NEVER commit code with hardcoded Supabase URLs or keys, even as
+  examples or placeholders.
+- NEVER change the bill total calculation logic without a corresponding
+  update to the audit log and a developer review.
+- NEVER apply a database migration directly. Always produce the SQL
+  for review and wait for explicit approval.
+- NEVER remove an audit_logs write from an existing flow without
+  explicit developer instruction and a documented reason.

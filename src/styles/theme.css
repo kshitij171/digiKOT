@@ -1,71 +1,124 @@
 /* ═══════════════════════════════════════════════════════════
-   OPULENCE RESTAURANT — Global Luxury Design System
+   OPULENCE RESTAURANT — Premium Light Design System
    ═══════════════════════════════════════════════════════════ */
 
 :root {
   /* Brand */
-  --brand-dark:   #1a1a2e;
-  --brand-navy:   #16213e;
-  --brand-mid:    #252545;
-  --gold:         #c9a84c;
-  --gold-light:   #e2c472;
-  --gold-dark:    #9d7e33;
-  --gold-bg:      rgba(201, 168, 76, 0.12);
+  --color-brand-primary: #B8860B;
+  --color-brand-primary-light: #F5E9C8;
+  --color-brand-primary-dark: #8B6508;
 
-  /* Backgrounds */
-  --bg-white:     #ffffff;
-  --bg-off:       #f7f6f2;
-  --bg-card:      #ffffff;
-  --bg-overlay:   rgba(0, 0, 0, 0.55);
+  /* Neutral surfaces */
+  --color-bg-app: #F7F5F2;
+  --color-bg-surface: #FFFFFF;
+  --color-bg-subtle: #F0EDE8;
+  --color-bg-hover: #EAE6DF;
 
   /* Text */
-  --text-primary:   #1a1a1a;
-  --text-secondary: #5a5a5a;
-  --text-muted:     #9b9b9b;
-  --text-light:     #ffffff;
-  --text-sidebar:   rgba(255, 255, 255, 0.65);
+  --color-text-primary: #1C1917;
+  --color-text-secondary: #57534E;
+  --color-text-muted: #A8A29E;
+  --color-text-inverse: #FFFFFF;
 
-  /* Semantic */
-  --success:      #2d7a4f;
-  --success-bg:   rgba(45, 122, 79, 0.1);
-  --danger:       #c0392b;
-  --danger-bg:    rgba(192, 57, 43, 0.1);
-  --warning:      #d97706;
-  --info:         #2563eb;
+  /* Borders */
+  --color-border-default: #E7E3DC;
+  --color-border-strong: #C7BFB5;
 
-  /* Veg / Non-veg */
-  --veg-color:    #2d7a4f;
-  --nonveg-color: #c0392b;
-
-  /* Borders & Shadows */
-  --border:       #e8e5de;
-  --border-dark:  #d0cdc5;
-  --shadow-xs:    0 1px 3px rgba(0, 0, 0, 0.06);
-  --shadow-sm:    0 2px 8px rgba(0, 0, 0, 0.08);
-  --shadow-md:    0 4px 20px rgba(0, 0, 0, 0.12);
-  --shadow-lg:    0 8px 40px rgba(0, 0, 0, 0.18);
-
-  /* Radii */
-  --radius-xs:  4px;
-  --radius-sm:  6px;
-  --radius-md:  10px;
-  --radius-lg:  14px;
-  --radius-xl:  20px;
-  --radius-full: 9999px;
-
-  /* Layout */
-  --sidebar-w:   200px;
-  --cart-w:      290px;
-  --topbar-h:    56px;
+  /* Status */
+  --color-success: #15803D;
+  --color-success-bg: #DCFCE7;
+  --color-warning: #B45309;
+  --color-warning-bg: #FEF3C7;
+  --color-danger: #DC2626;
+  --color-danger-bg: #FEE2E2;
+  --color-info: #1D4ED8;
+  --color-info-bg: #DBEAFE;
 
   /* Typography */
-  --font-sans:  -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-serif: 'Georgia', 'Times New Roman', serif;
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', system-ui, sans-serif;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Radius */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* Layout */
+  --sidebar-w: 200px;
+  --cart-w: 290px;
+  --topbar-h: 56px;
+  --nav-height: 56px;
+  --bg-overlay: rgba(0, 0, 0, 0.45);
 
   /* Transitions */
-  --t-fast:   100ms ease;
+  --t-fast: 100ms ease;
   --t-normal: 200ms ease;
-  --t-slow:   350ms ease;
+  --t-slow: 350ms ease;
+
+  /* Veg / Non-veg */
+  --veg-color: var(--color-success);
+  --nonveg-color: var(--color-danger);
+
+  /* ── Legacy aliases (map existing component tokens → design system) ── */
+  --brand-dark: var(--color-text-primary);
+  --brand-navy: var(--color-bg-subtle);
+  --brand-mid: var(--color-bg-hover);
+  --gold: var(--color-brand-primary);
+  --gold-light: var(--color-brand-primary-light);
+  --gold-dark: var(--color-brand-primary-dark);
+  --gold-bg: var(--color-brand-primary-light);
+
+  --bg-white: var(--color-bg-surface);
+  --bg-off: var(--color-bg-app);
+  --bg-card: var(--color-bg-surface);
+
+  --text-primary: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
+  --text-light: var(--color-text-inverse);
+  --text-sidebar: var(--color-text-secondary);
+
+  --success: var(--color-success);
+  --success-bg: var(--color-success-bg);
+  --danger: var(--color-danger);
+  --danger-bg: var(--color-danger-bg);
+  --warning: var(--color-warning);
+  --info: var(--color-info);
+
+  --border: var(--color-border-default);
+  --border-dark: var(--color-border-strong);
+
+  --shadow-xs: var(--shadow-sm);
+  --radius-xs: var(--radius-sm);
+  --radius-xl: var(--radius-lg);
+
+  --font-sans: var(--font-body);
+  --font-serif: var(--font-display);
+
+  --primary: var(--color-brand-primary);
+  --primary-hover: var(--color-brand-primary-dark);
+  --bg-dark: var(--color-bg-app);
+  --bg-mid: var(--color-bg-subtle);
+  --text-main: var(--color-text-primary);
+  --accent: var(--color-brand-primary);
+  --green: var(--color-success);
+  --amber: var(--color-warning);
+  --red: var(--color-danger);
 }
 
 /* ── Global resets ──────────────────────────────────────── */
@@ -73,28 +126,36 @@
 
 body {
   margin: 0;
-  font-family: var(--font-sans);
-  color: var(--text-primary);
-  background: var(--bg-off);
+  font-family: var(--font-body);
+  color: var(--color-text-primary);
+  background: var(--color-bg-app);
   -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--color-text-primary);
 }
 
 /* ── Scrollbar styling (webkit) ─────────────────────────── */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-dark); border-radius: var(--radius-full); }
-::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-muted); }
 
 /* ── Utility classes ────────────────────────────────────── */
-.gold { color: var(--gold); }
-.text-muted { color: var(--text-muted); }
-.text-secondary { color: var(--text-secondary); }
+.gold { color: var(--color-brand-primary); }
+.text-muted { color: var(--color-text-muted); }
+.text-secondary { color: var(--color-text-secondary); }
 .hidden { display: none !important; }
 
-/* ── Gold divider line ──────────────────────────────────── */
 .gold-divider {
   height: 1px;
-  background: linear-gradient(to right, transparent, var(--gold), transparent);
+  background: linear-gradient(to right, transparent, var(--color-brand-primary), transparent);
   border: none;
   margin: 0;
 }

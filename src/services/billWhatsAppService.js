@@ -82,36 +82,40 @@ export async function sendBillViaWhatsApp({
   languageCode,
   outputPath,
 }) {
-  const config = getWhatsAppConfig();
-  const lang = languageCode ?? config.templateLanguage ?? DEFAULT_TEMPLATE_LANGUAGE;
-  const filename = pdfFilename(billPdfInput);
+  try {
+    const config = getWhatsAppConfig();
+    const lang = languageCode ?? config.templateLanguage ?? DEFAULT_TEMPLATE_LANGUAGE;
+    const filename = pdfFilename(billPdfInput);
 
-  // Step 1: Generate bill PDF in memory
-  const { buffer } = await generateBillPdf(billPdfInput, { outputPath });
+    // Step 1: Generate bill PDF in memory
+    const { buffer } = await generateBillPdf(billPdfInput, { outputPath });
 
-  // Step 2: Upload PDF to Meta Media API → media_id (not a link)
-  const mediaId = await whatsappService.uploadMedia({
-    buffer,
-    mimeType: PDF_MIME,
-    filename,
-    config,
-  });
+    // Step 2: Upload PDF to Meta Media API → media_id (not a link)
+    const mediaId = await whatsappService.uploadMedia({
+      buffer,
+      mimeType: PDF_MIME,
+      filename,
+      config,
+    });
 
-  // Step 3: Send template with document header using media_id
-  const components = buildBillTemplateComponents(billPdfInput, {
-    customerName,
-    mediaId,
-    config,
-  });
+    // Step 3: Send template with document header using media_id
+    const components = buildBillTemplateComponents(billPdfInput, {
+      customerName,
+      mediaId,
+      config,
+    });
 
-  const message = await whatsappService.sendBillTemplate({
-    to,
-    components,
-    languageCode: lang,
-    config,
-  });
+    const message = await whatsappService.sendBillTemplate({
+      to,
+      components,
+      languageCode: lang,
+      config,
+    });
 
-  return { message, mediaId, filename, pdfBytes: buffer.length };
+    return { message, mediaId, filename, pdfBytes: buffer.length };
+  } catch (err) {
+    throw err;
+  }
 }
 
 export const billWhatsAppService = {

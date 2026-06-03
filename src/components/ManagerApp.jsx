@@ -8,7 +8,7 @@ import CancelledKotsTab from './CancelledKotsTab';
 import AuditBillDetailPanel from './AuditBillDetailPanel';
 import { buildManagerBillDetail } from '../services/auditBillDetailService';
 import { useAuth } from '../context/AuthContext';
-import { validatePin } from '../lib/utils/auth';
+import { hashPin, validatePin } from '../lib/utils/auth';
 import './ManagerApp.css';
 
 const ROLE_LABELS = { waiter: 'Waiter', kitchen_supervisor: 'Kitchen Supervisor', manager: 'Manager' };
@@ -197,7 +197,7 @@ function ModificationsTab({ currentUser }) {
       </div>
 
       {actionError && (
-        <p style={{ color: '#f87171', fontSize: '0.82rem', marginBottom: '0.75rem' }}>{actionError}</p>
+        <p style={{ color: 'var(--color-danger)', fontSize: '0.82rem', marginBottom: '0.75rem' }}>{actionError}</p>
       )}
 
       {visible.length === 0 ? (
@@ -234,24 +234,27 @@ function ModificationsTab({ currentUser }) {
               <div className="mod-req-time">{fmtDate(req.requested_at)}</div>
 
               <div className="mod-req-items" style={{ marginTop: '0.5rem' }}>
-                <span style={{ color: '#64748b', fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.2rem' }}>
+                <span style={{ color: 'var(--color-text-muted)', fontSize: '0.75rem', fontWeight: 600, display: 'block', marginBottom: '0.2rem' }}>
                   Items requested for removal:
                 </span>
                 {items.map((item, idx) => (
-                  <span key={idx} className="mod-req-item-tag">
+                  <span
+                    key={`${req.id}:${item?.kotId ?? ''}:${item?.itemId ?? item?.itemName ?? idx}`}
+                    className="mod-req-item-tag"
+                  >
                     {item.itemName} ×{item.qty}
                   </span>
                 ))}
               </div>
 
               <div className="mod-req-reason">
-                <strong style={{ color: '#94a3b8' }}>Reason: </strong>
+                <strong style={{ color: 'var(--color-text-secondary)' }}>Reason: </strong>
                 {req.reason}
               </div>
 
               {req.rejection_reason && (
-                <div className="mod-req-reason" style={{ borderLeftColor: '#7f1d1d' }}>
-                  <strong style={{ color: '#f87171' }}>Rejection reason: </strong>
+                <div className="mod-req-reason" style={{ borderLeftColor: 'var(--color-danger)' }}>
+                  <strong style={{ color: 'var(--color-danger)' }}>Rejection reason: </strong>
                   {req.rejection_reason}
                 </div>
               )}
@@ -282,15 +285,15 @@ function ModificationsTab({ currentUser }) {
       {/* Reject reason modal */}
       {rejectModal && (
         <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)',
+          position: 'fixed', inset: 0, background: 'var(--bg-overlay)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
         }}>
           <div style={{
-            background: '#1e293b', border: '1px solid #334155', borderRadius: 12,
+            background: 'var(--color-bg-surface)', border: '1px solid var(--color-border-default)', borderRadius: 12,
             padding: '1.5rem', width: '90%', maxWidth: 420,
           }}>
             <div style={{ fontWeight: 700, fontSize: '1rem', marginBottom: '0.5rem' }}>Reject Request</div>
-            <div style={{ fontSize: '0.82rem', color: '#94a3b8', marginBottom: '1rem' }}>
+            <div style={{ fontSize: '0.82rem', color: 'var(--color-text-secondary)', marginBottom: '1rem' }}>
               A reason is required. The waiter will see it in their summary.
             </div>
             <textarea
@@ -300,17 +303,17 @@ function ModificationsTab({ currentUser }) {
               rows={3}
               style={{
                 width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.65rem',
-                borderRadius: 6, border: '1px solid #334155', background: '#0f172a',
-                color: '#e2e8f0', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical',
+                borderRadius: 6, border: '1px solid var(--color-border-default)', background: 'var(--color-bg-app)',
+                color: 'var(--color-text-primary)', fontFamily: 'inherit', fontSize: '0.85rem', resize: 'vertical',
               }}
             />
             {actionError && (
-              <p style={{ color: '#f87171', fontSize: '0.8rem', margin: '0.4rem 0 0' }}>{actionError}</p>
+              <p style={{ color: 'var(--color-danger)', fontSize: '0.8rem', margin: '0.4rem 0 0' }}>{actionError}</p>
             )}
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', marginTop: '1rem' }}>
               <button
                 onClick={() => setRejectModal(null)}
-                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid var(--color-border-default)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
               >
                 Cancel
               </button>
@@ -352,11 +355,16 @@ function StaffTab({ currentUser }) {
   const [staffError, setStaffError] = useState('');
   const [staffSaving, setStaffSaving] = useState(false);
   const [resetSaving, setResetSaving] = useState(false);
-  const [availablePins, setAvailablePins] = useState([]);
-  const [loadingPins, setLoadingPins] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null); // { id, name }
-  const [staffForm, setStaffForm] = useState({ name: '', phone: '', username: '', role: 'waiter', pin: '', confirmPin: '' });
-  const [pinResetForm, setPinResetForm] = useState({ username: '', newPin: '', confirmPin: '' });
+  const [staffForm, setStaffForm] = useState({ name: '', phone: '', username: '', role: 'waiter' });
+  const [pinResetForm, setPinResetForm] = useState({ username: '' });
+  const [pinHint, setPinHint] = useState({ status: 'idle', message: '' }); // idle|checking|available|taken
+  const [resetPinHint, setResetPinHint] = useState({ status: 'idle', message: '' });
+
+  const pinRef = React.useRef(null);
+  const confirmPinRef = React.useRef(null);
+  const newPinRef = React.useRef(null);
+  const confirmNewPinRef = React.useRef(null);
 
   const refreshStaff = useCallback(async () => {
     if (!currentUser) return;
@@ -376,39 +384,69 @@ function StaffTab({ currentUser }) {
 
   useEffect(() => { refreshStaff(); }, [refreshStaff]);
 
-  const refreshPinSuggestions = useCallback(async () => {
-    setLoadingPins(true);
+  const normalizePinInput = (el) => {
+    if (!el) return '';
+    const next = String(el.value || '').replace(/\D/g, '').slice(0, 4);
+    if (el.value !== next) el.value = next;
+    return next;
+  };
+
+  const checkPinAvailability = useCallback(async (pinValue) => {
+    if (!validatePin(pinValue)) {
+      setPinHint({ status: 'idle', message: '' });
+      return;
+    }
+    setPinHint({ status: 'checking', message: 'Checking availability…' });
     try {
-      const pins = await managerService.getAvailablePins();
-      setAvailablePins(pins);
+      const pinHash = await hashPin(pinValue);
+      const { available } = await managerService.checkPinHashAvailable({ pinHash });
+      setPinHint(available
+        ? { status: 'available', message: 'PIN is available.' }
+        : { status: 'taken', message: 'PIN is already in use.' }
+      );
     } catch (_) {
-      // Fail silently per requirement.
-      setAvailablePins([]);
-    } finally {
-      setLoadingPins(false);
+      // Best-effort hint only; do not block form.
+      setPinHint({ status: 'idle', message: '' });
     }
   }, []);
 
-  useEffect(() => {
-    // When the create-staff form is opened/mounted, preload suggestions.
-    if (!currentUser) return;
-    refreshPinSuggestions();
-  }, [currentUser, refreshPinSuggestions]);
+  const checkResetPinAvailability = useCallback(async (pinValue) => {
+    if (!validatePin(pinValue)) {
+      setResetPinHint({ status: 'idle', message: '' });
+      return;
+    }
+    setResetPinHint({ status: 'checking', message: 'Checking availability…' });
+    try {
+      const pinHash = await hashPin(pinValue);
+      const { available } = await managerService.checkPinHashAvailable({ pinHash });
+      setResetPinHint(available
+        ? { status: 'available', message: 'PIN is available.' }
+        : { status: 'taken', message: 'PIN is already in use.' }
+      );
+    } catch (_) {
+      setResetPinHint({ status: 'idle', message: '' });
+    }
+  }, []);
 
   const submitStaffRegistration = async (e) => {
     e.preventDefault();
     setStaffMessage(''); setStaffError('');
-    if (!validatePin(staffForm.pin)) { setStaffError('PIN must be exactly 4 digits.'); return; }
-    if (staffForm.pin !== staffForm.confirmPin) { setStaffError('PINs do not match.'); return; }
+    const pinValue = normalizePinInput(pinRef.current);
+    const confirmPinValue = normalizePinInput(confirmPinRef.current);
+    if (!validatePin(pinValue)) { setStaffError('PIN must be exactly 4 digits.'); return; }
+    if (pinValue !== confirmPinValue) { setStaffError('PINs do not match.'); return; }
     setStaffSaving(true);
     try {
+      const pinHash = await hashPin(pinValue);
       const created = await managerService.registerStaff({
         managerUser: currentUser, name: staffForm.name, phone: staffForm.phone,
-        username: staffForm.username, role: staffForm.role, pin: staffForm.pin,
+        username: staffForm.username, role: staffForm.role, pinHash,
       });
       setStaffMessage(`Created. Staff code: ${created.code}`);
-      setStaffForm({ name: '', phone: '', username: '', role: 'waiter', pin: '', confirmPin: '' });
-      await refreshPinSuggestions();
+      setStaffForm({ name: '', phone: '', username: '', role: 'waiter' });
+      if (pinRef.current) pinRef.current.value = '';
+      if (confirmPinRef.current) confirmPinRef.current.value = '';
+      setPinHint({ status: 'idle', message: '' });
       await refreshStaff();
     } catch (err) {
       setStaffError(staffFacingError(err, 'Unable to create staff.'));
@@ -420,13 +458,19 @@ function StaffTab({ currentUser }) {
   const submitPinReset = async (e) => {
     e.preventDefault();
     setStaffMessage(''); setStaffError('');
-    if (!validatePin(pinResetForm.newPin)) { setStaffError('New PIN must be exactly 4 digits.'); return; }
-    if (pinResetForm.newPin !== pinResetForm.confirmPin) { setStaffError('PINs do not match.'); return; }
+    const pinValue = normalizePinInput(newPinRef.current);
+    const confirmPinValue = normalizePinInput(confirmNewPinRef.current);
+    if (!validatePin(pinValue)) { setStaffError('New PIN must be exactly 4 digits.'); return; }
+    if (pinValue !== confirmPinValue) { setStaffError('PINs do not match.'); return; }
     setResetSaving(true);
     try {
-      await managerService.resetStaffPin({ managerUser: currentUser, username: pinResetForm.username, newPin: pinResetForm.newPin });
+      const newPinHash = await hashPin(pinValue);
+      await managerService.resetStaffPin({ managerUser: currentUser, username: pinResetForm.username, newPinHash });
       setStaffMessage('PIN reset successful.');
-      setPinResetForm({ username: '', newPin: '', confirmPin: '' });
+      setPinResetForm({ username: '' });
+      if (newPinRef.current) newPinRef.current.value = '';
+      if (confirmNewPinRef.current) confirmNewPinRef.current.value = '';
+      setResetPinHint({ status: 'idle', message: '' });
     } catch (err) {
       setStaffError(staffFacingError(err, 'Unable to reset PIN.'));
     } finally {
@@ -448,12 +492,15 @@ function StaffTab({ currentUser }) {
     }
   };
 
-  const sField = (label, inputProps) => (
+  const sField = (label, inputProps) => {
+    const { ref, ...rest } = inputProps || {};
+    return (
     <div className="staff-field">
       <label>{label}</label>
-      <input className="staff-input" {...inputProps} />
+      <input ref={ref} className="staff-input" {...rest} />
     </div>
   );
+  };
 
   return (
     <div>
@@ -482,39 +529,43 @@ function StaffTab({ currentUser }) {
               type="password"
               placeholder="••••"
               maxLength={4}
-              value={staffForm.pin}
-              onChange={(e) => setStaffForm((p) => ({ ...p, pin: e.target.value.replace(/\D/g, '') }))}
+              ref={pinRef}
+              onInput={(e) => {
+                const next = normalizePinInput(e.target);
+                checkPinAvailability(next);
+              }}
               required
             />
-            {availablePins.length > 0 && (
-              <div className="pin-suggestions">
-                <div className="pin-suggestions-head">
-                  <span className="pin-suggestions-label">Available PINs:</span>
-                  <button
-                    type="button"
-                    className="pin-refresh-link"
-                    onClick={refreshPinSuggestions}
-                    disabled={loadingPins}
-                  >
-                    {loadingPins ? 'Refreshing…' : 'Refresh suggestions'}
-                  </button>
-                </div>
-                <div className="pin-suggestions-row">
-                  {availablePins.map((pin) => (
-                    <button
-                      type="button"
-                      key={pin}
-                      className="pin-chip"
-                      onClick={() => setStaffForm((p) => ({ ...p, pin, confirmPin: pin }))}
-                    >
-                      {pin}
-                    </button>
-                  ))}
-                </div>
+            {pinHint.message && (
+              <div
+                className="pin-suggestions"
+                style={{ marginTop: '0.4rem', padding: '0.4rem 0.55rem' }}
+              >
+                <span
+                  className="pin-suggestions-label"
+                  style={{
+                    color:
+                      pinHint.status === 'available'
+                        ? 'var(--color-success)'
+                        : pinHint.status === 'taken'
+                          ? 'var(--color-danger)'
+                          : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {pinHint.message}
+                </span>
               </div>
             )}
           </div>
-          {sField('Confirm PIN *', { type: 'password', placeholder: '••••', maxLength: 4, value: staffForm.confirmPin, onChange: (e) => setStaffForm((p) => ({ ...p, confirmPin: e.target.value.replace(/\D/g, '') })), required: true })}
+          {sField('Confirm PIN *', {
+            type: 'password',
+            placeholder: '••••',
+            maxLength: 4,
+            inputMode: 'numeric',
+            ref: confirmPinRef,
+            onInput: (e) => normalizePinInput(e.target),
+            required: true,
+          })}
           <button type="submit" className="btn-staff-submit" disabled={staffSaving}>
             {staffSaving ? 'Creating…' : 'Create Staff Member'}
           </button>
@@ -526,8 +577,49 @@ function StaffTab({ currentUser }) {
         <div className="staff-section-title">Reset PIN by Username</div>
         <form onSubmit={submitPinReset} className="staff-form">
           {sField('Username *', { placeholder: 'Staff username', value: pinResetForm.username, onChange: (e) => setPinResetForm((p) => ({ ...p, username: e.target.value.toLowerCase().replace(/\s/g, '') })), required: true })}
-          {sField('New 4-digit PIN *', { type: 'password', placeholder: '••••', maxLength: 4, value: pinResetForm.newPin, onChange: (e) => setPinResetForm((p) => ({ ...p, newPin: e.target.value.replace(/\D/g, '') })), required: true })}
-          {sField('Confirm New PIN *', { type: 'password', placeholder: '••••', maxLength: 4, value: pinResetForm.confirmPin, onChange: (e) => setPinResetForm((p) => ({ ...p, confirmPin: e.target.value.replace(/\D/g, '') })), required: true })}
+          {sField('New 4-digit PIN *', {
+            type: 'password',
+            placeholder: '••••',
+            maxLength: 4,
+            inputMode: 'numeric',
+            ref: newPinRef,
+            onInput: (e) => {
+              const next = normalizePinInput(e.target);
+              checkResetPinAvailability(next);
+            },
+            required: true,
+          })}
+          {resetPinHint.message && (
+            <div className="staff-field" style={{ marginTop: '-0.35rem' }}>
+              <div
+                className="pin-suggestions"
+                style={{ padding: '0.4rem 0.55rem' }}
+              >
+                <span
+                  className="pin-suggestions-label"
+                  style={{
+                    color:
+                      resetPinHint.status === 'available'
+                        ? 'var(--color-success)'
+                        : resetPinHint.status === 'taken'
+                          ? 'var(--color-danger)'
+                          : 'var(--color-text-secondary)',
+                  }}
+                >
+                  {resetPinHint.message}
+                </span>
+              </div>
+            </div>
+          )}
+          {sField('Confirm New PIN *', {
+            type: 'password',
+            placeholder: '••••',
+            maxLength: 4,
+            inputMode: 'numeric',
+            ref: confirmNewPinRef,
+            onInput: (e) => normalizePinInput(e.target),
+            required: true,
+          })}
           <button type="submit" className="btn-staff-reset" disabled={resetSaving}>
             {resetSaving ? 'Resetting…' : 'Reset PIN'}
           </button>
@@ -538,35 +630,35 @@ function StaffTab({ currentUser }) {
       <div className="staff-section">
         <div className="staff-section-title">All Staff</div>
         {loadingStaff ? (
-          <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Loading…</p>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>Loading…</p>
         ) : staff.length === 0 ? (
-          <p style={{ color: '#475569', fontSize: '0.85rem' }}>No staff members registered.</p>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem' }}>No staff members registered.</p>
         ) : (
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid #334155' }}>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Full Name</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Username</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Role</th>
-                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: '#94a3b8', fontWeight: 600 }}>Phone</th>
+              <tr style={{ borderBottom: '1px solid var(--color-border-default)' }}>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Full Name</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Username</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Role</th>
+                <th style={{ textAlign: 'left', padding: '0.4rem 0.5rem', color: 'var(--color-text-secondary)', fontWeight: 600 }}>Phone</th>
                 <th style={{ padding: '0.4rem 0.5rem' }}></th>
               </tr>
             </thead>
             <tbody>
               {staff.map((m) => (
-                <tr key={m.id} style={{ borderBottom: '1px solid #1e293b' }}>
-                  <td style={{ padding: '0.5rem 0.5rem', color: '#e2e8f0', fontWeight: 600 }}>{m.name}</td>
-                  <td style={{ padding: '0.5rem 0.5rem', color: '#94a3b8' }}>{m.username ? `@${m.username}` : '—'}</td>
+                <tr key={m.id} style={{ borderBottom: '1px solid var(--color-bg-surface)' }}>
+                  <td style={{ padding: '0.5rem 0.5rem', color: 'var(--color-text-primary)', fontWeight: 600 }}>{m.name}</td>
+                  <td style={{ padding: '0.5rem 0.5rem', color: 'var(--color-text-secondary)' }}>{m.username ? `@${m.username}` : '—'}</td>
                   <td style={{ padding: '0.5rem 0.5rem' }}>
-                    <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4, background: '#1e293b', color: '#cbd5e1' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 600, padding: '0.15rem 0.45rem', borderRadius: 4, background: 'var(--color-bg-surface)', color: 'var(--color-text-secondary)' }}>
                       {ROLE_LABELS[m.role] || m.role}
                     </span>
                   </td>
-                  <td style={{ padding: '0.5rem 0.5rem', color: '#64748b' }}>{m.phone}</td>
+                  <td style={{ padding: '0.5rem 0.5rem', color: 'var(--color-text-muted)' }}>{m.phone}</td>
                   <td style={{ padding: '0.5rem 0.5rem', textAlign: 'right' }}>
                     <button
                       className="btn-deactivate"
-                      style={{ background: '#7f1d1d', color: '#fca5a5', border: '1px solid #991b1b' }}
+                      style={{ background: 'var(--color-danger)', color: 'var(--color-danger)', border: '1px solid var(--color-danger)' }}
                       onClick={() => setDeleteConfirm({ id: m.id, name: m.name })}
                     >
                       Delete
@@ -582,31 +674,31 @@ function StaffTab({ currentUser }) {
       {/* Delete confirmation dialog */}
       {deleteConfirm && (
         <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)',
+          position: 'fixed', inset: 0, background: 'var(--bg-overlay)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200,
         }}>
           <div style={{
-            background: '#1e293b', border: '1px solid #7f1d1d', borderRadius: 12,
+            background: 'var(--color-bg-surface)', border: '1px solid var(--color-danger)', borderRadius: 12,
             padding: '1.5rem', width: '90%', maxWidth: 400,
           }}>
-            <div style={{ fontWeight: 700, fontSize: '1rem', color: '#f1f5f9', marginBottom: '0.5rem' }}>
+            <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--color-text-primary)', marginBottom: '0.5rem' }}>
               Remove staff member?
             </div>
-            <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '1.25rem' }}>
-              Are you sure you want to remove <strong style={{ color: '#e2e8f0' }}>{deleteConfirm.name}</strong> from the system?
+            <div style={{ fontSize: '0.85rem', color: 'var(--color-text-secondary)', marginBottom: '1.25rem' }}>
+              Are you sure you want to remove <strong style={{ color: 'var(--color-text-primary)' }}>{deleteConfirm.name}</strong> from the system?
               Their PIN will be freed up and they will no longer be able to log in.
               Historical KOTs and bills attributed to them are preserved.
             </div>
             <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setDeleteConfirm(null)}
-                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
+                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid var(--color-border-default)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit' }}
               >
                 Cancel
               </button>
               <button
                 onClick={confirmDelete}
-                style={{ padding: '0.45rem 1.1rem', background: '#991b1b', color: '#fca5a5', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}
+                style={{ padding: '0.45rem 1.1rem', background: 'var(--color-danger)', color: 'var(--color-danger)', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}
               >
                 Yes, Remove
               </button>
@@ -862,11 +954,11 @@ function BillsTab() {
     <div>
       <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
         <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>From</label>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>From</label>
           <input type="date" className="audit-date-input" value={dates.from} onChange={e => setDates(p => ({ ...p, from: e.target.value }))} />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>To</label>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>To</label>
           <input type="date" className="audit-date-input" value={dates.to} onChange={e => setDates(p => ({ ...p, to: e.target.value }))} />
         </div>
         <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.4rem' }}>
@@ -878,12 +970,12 @@ function BillsTab() {
             onChange={e => setSearch(e.target.value)}
             style={{ minWidth: 180 }}
           />
-          <button type="submit" style={{ padding: '0.4rem 0.85rem', background: '#334155', color: '#e2e8f0', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem' }}>
+          <button type="submit" style={{ padding: '0.4rem 0.85rem', background: 'var(--color-border-default)', color: 'var(--color-text-primary)', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem' }}>
             Search
           </button>
         </form>
         <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: '#94a3b8', marginBottom: '0.2rem' }}>Filter by discount</label>
+          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>Filter by discount</label>
           <select
             className="audit-date-input"
             value={discountFilter}
@@ -945,9 +1037,9 @@ function BillsTab() {
                               borderRadius: 4,
                               fontSize: '0.68rem',
                               fontWeight: 600,
-                              background: badge.high ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
-                              color: badge.high ? '#f87171' : '#fbbf24',
-                              border: `1px solid ${badge.high ? 'rgba(239, 68, 68, 0.35)' : 'rgba(245, 158, 11, 0.35)'}`,
+                              background: badge.high ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)',
+                              color: badge.high ? 'var(--color-danger)' : 'var(--color-warning)',
+                              border: `1px solid ${badge.high ? 'color-mix(in srgb, var(--color-danger) 35%, transparent)' : 'color-mix(in srgb, var(--color-warning) 35%, transparent)'}`,
                               verticalAlign: 'middle',
                             }}
                           >
@@ -960,13 +1052,13 @@ function BillsTab() {
                       <td>{includedItems.length}</td>
                       <td>{fmtAmt(b.subtotal)}</td>
                       <td style={{ fontWeight: 700 }}>{fmtAmt(b.total)}</td>
-                      <td style={{ whiteSpace: 'nowrap', color: '#64748b' }}>{fmtDate(b.cleared_at)}</td>
+                      <td style={{ whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }}>{fmtDate(b.cleared_at)}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={7} style={{ padding: '0.75rem 1rem', background: '#0f172a', verticalAlign: 'top' }}>
+                        <td colSpan={7} style={{ padding: '0.75rem 1rem', background: 'var(--color-bg-app)', verticalAlign: 'top' }}>
                           {auditLoading && (
-                            <span style={{ color: '#94a3b8', fontSize: '0.82rem' }}>Loading annotated bill…</span>
+                            <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.82rem' }}>Loading annotated bill…</span>
                           )}
                           {!auditLoading && (
                             <AuditBillDetailPanel pct={Number(b.discount_percent) || 0} auditBill={auditBill} />
@@ -1220,7 +1312,7 @@ export default function ManagerApp() {
           <div className="mgr-topbar-user">@{currentUser?.username || currentUser?.name}</div>
           <button
             onClick={logoutUser}
-            style={{ padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid #334155', color: '#94a3b8', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit' }}
+            style={{ padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid var(--color-border-default)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit' }}
           >
             Logout
           </button>

@@ -9,13 +9,17 @@ function kotShort(id) {
 }
 
 async function userLabel(userId) {
-  if (!userId) return { username: '—', fullName: '—' };
-  const u = await userRepository.findById(userId);
-  if (!u) return { username: '—', fullName: '(removed user)' };
-  return {
-    username: u.username ? `@${u.username}` : '—',
-    fullName: u.name || '—',
-  };
+  try {
+    if (!userId) return { username: '—', fullName: '—' };
+    const u = await userRepository.findById(userId);
+    if (!u) return { username: '—', fullName: '(removed user)' };
+    return {
+      username: u.username ? `@${u.username}` : '—',
+      fullName: u.name || '—',
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 function itemsLineFromRemovalJson(itemsToRemove) {
@@ -120,76 +124,80 @@ export function collapsedIcon(log) {
  * Load full detail for expanded panel.
  */
 export async function loadExpandedDetail(log) {
-  if (log.action === 'approve_cancel' || log.action === 'reject_cancel') {
-    const req = await cancelRepository.findById(log.entity_id);
-    if (!req) {
-      return { type: 'cancel', error: 'Cancel request not found (it may have been purged).' };
+  try {
+    if (log.action === 'approve_cancel' || log.action === 'reject_cancel') {
+      const req = await cancelRepository.findById(log.entity_id);
+      if (!req) {
+        return { type: 'cancel', error: 'Cancel request not found (it may have been purged).' };
+      }
+      const [waiter, kitchen] = await Promise.all([
+        userLabel(req.waiter_user_id),
+        userLabel(req.reviewed_by_user_id),
+      ]);
+      const itemsLine = `• ${req.item_name} ×${req.qty}`;
+      return {
+        type: 'cancel',
+        fields: {
+          'KOT number': kotShort(req.kot_id),
+          'Table number': String(req.table_number),
+          'Items cancelled': itemsLine,
+          'Waiter (request)': `${waiter.username} — ${waiter.fullName}`,
+          'Kitchen supervisor': `${kitchen.username} — ${kitchen.fullName}`,
+          Decision: log.action === 'approve_cancel' ? 'Approved' : 'Rejected',
+          'Waiter reason': req.reason || '—',
+          'Kitchen rejection note':
+            log.action === 'reject_cancel'
+              ? '— (optional note not stored in DB for kitchen rejections)'
+              : '—',
+          'Request time': req.requested_at ? new Date(req.requested_at).toLocaleString() : '—',
+          'Decision time': req.reviewed_at ? new Date(req.reviewed_at).toLocaleString() : '—',
+        },
+      };
     }
-    const [waiter, kitchen] = await Promise.all([
-      userLabel(req.waiter_user_id),
-      userLabel(req.reviewed_by_user_id),
-    ]);
-    const itemsLine = `• ${req.item_name} ×${req.qty}`;
-    return {
-      type: 'cancel',
-      fields: {
-        'KOT number': kotShort(req.kot_id),
-        'Table number': String(req.table_number),
-        'Items cancelled': itemsLine,
-        'Waiter (request)': `${waiter.username} — ${waiter.fullName}`,
-        'Kitchen supervisor': `${kitchen.username} — ${kitchen.fullName}`,
-        Decision: log.action === 'approve_cancel' ? 'Approved' : 'Rejected',
-        'Waiter reason': req.reason || '—',
-        'Kitchen rejection note':
-          log.action === 'reject_cancel'
-            ? '— (optional note not stored in DB for kitchen rejections)'
-            : '—',
-        'Request time': req.requested_at ? new Date(req.requested_at).toLocaleString() : '—',
-        'Decision time': req.reviewed_at ? new Date(req.reviewed_at).toLocaleString() : '—',
-      },
-    };
-  }
 
-  if (log.action === 'BILL_MODIFICATION_REJECTED') {
-    const req = await billModificationRepository.getById(log.entity_id);
-    const j = log.after_json || {};
-    const tbl = req?.table_number ?? j.tableNumber ?? '?';
-    const itemsSummary =
-      itemsLineFromRemovalJson(req?.items_to_remove) ||
-      j.itemsSummary ||
-      '—';
-    const reasonRaw =
-      (req?.rejection_reason && String(req.rejection_reason).trim()) ||
-      (log.remarks && String(log.remarks).trim()) ||
-      (j.rejectionReason && String(j.rejectionReason).trim()) ||
-      '';
-    const reasonLine = reasonRaw || 'No reason provided';
-    let mgr =
-      (req?.rejected_by_display_name && String(req.rejected_by_display_name).trim()) ||
-      j.rejectedByDisplayName ||
-      null;
-    if (!mgr && req?.reviewed_by_manager_id) {
-      mgr = (await userLabel(req.reviewed_by_manager_id)).fullName;
+    if (log.action === 'BILL_MODIFICATION_REJECTED') {
+      const req = await billModificationRepository.getById(log.entity_id);
+      const j = log.after_json || {};
+      const tbl = req?.table_number ?? j.tableNumber ?? '?';
+      const itemsSummary =
+        itemsLineFromRemovalJson(req?.items_to_remove) ||
+        j.itemsSummary ||
+        '—';
+      const reasonRaw =
+        (req?.rejection_reason && String(req.rejection_reason).trim()) ||
+        (log.remarks && String(log.remarks).trim()) ||
+        (j.rejectionReason && String(j.rejectionReason).trim()) ||
+        '';
+      const reasonLine = reasonRaw || 'No reason provided';
+      let mgr =
+        (req?.rejected_by_display_name && String(req.rejected_by_display_name).trim()) ||
+        j.rejectedByDisplayName ||
+        null;
+      if (!mgr && req?.reviewed_by_manager_id) {
+        mgr = (await userLabel(req.reviewed_by_manager_id)).fullName;
+      }
+      mgr = mgr || 'manager';
+      const tsRaw = req?.rejected_at || req?.reviewed_at || j.reviewedAtIso || log.created_at;
+      const ts = tsRaw ? new Date(tsRaw).toLocaleString() : '—';
+      return {
+        type: 'bill_mod_reject',
+        headline: `Removal request rejected — ${itemsSummary} for Table ${tbl}`,
+        reasonLine,
+        rejectedLine: `Rejected by ${mgr} at ${ts}`,
+      };
     }
-    mgr = mgr || 'manager';
-    const tsRaw = req?.rejected_at || req?.reviewed_at || j.reviewedAtIso || log.created_at;
-    const ts = tsRaw ? new Date(tsRaw).toLocaleString() : '—';
-    return {
-      type: 'bill_mod_reject',
-      headline: `Removal request rejected — ${itemsSummary} for Table ${tbl}`,
-      reasonLine,
-      rejectedLine: `Rejected by ${mgr} at ${ts}`,
-    };
-  }
 
-  const pct = getDiscountPercentFromLog(log);
-  if (pct != null && pct > 50 && log.entity_type === 'bill') {
-    const auditBill = await buildAuditBillDetail(log.entity_id);
-    if (auditBill.error) {
-      return { type: 'audit_bill', pct, auditBill: { error: auditBill.error } };
+    const pct = getDiscountPercentFromLog(log);
+    if (pct != null && pct > 50 && log.entity_type === 'bill') {
+      const auditBill = await buildAuditBillDetail(log.entity_id);
+      if (auditBill.error) {
+        return { type: 'audit_bill', pct, auditBill: { error: auditBill.error } };
+      }
+      return { type: 'audit_bill', pct, auditBill };
     }
-    return { type: 'audit_bill', pct, auditBill };
-  }
 
-  return { type: 'unknown', error: 'No extra details for this entry type.' };
+    return { type: 'unknown', error: 'No extra details for this entry type.' };
+  } catch (err) {
+    throw err;
+  }
 }

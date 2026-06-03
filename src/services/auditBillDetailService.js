@@ -14,12 +14,16 @@ function kotShort(id) {
 }
 
 async function managerDisplayName(managerUserId) {
-  if (!managerUserId) return 'Manager';
-  const u = await userRepository.findById(managerUserId);
-  if (!u) return 'Manager';
-  if (u.name && String(u.name).trim()) return u.name.trim();
-  if (u.username) return `@${u.username}`;
-  return 'Manager';
+  try {
+    if (!managerUserId) return 'Manager';
+    const u = await userRepository.findById(managerUserId);
+    if (!u) return 'Manager';
+    if (u.name && String(u.name).trim()) return u.name.trim();
+    if (u.username) return `@${u.username}`;
+    return 'Manager';
+  } catch (err) {
+    throw err;
+  }
 }
 
 function kotIdsFromBillItems(billItems) {
@@ -136,202 +140,206 @@ export function resolveItemDisplayName(raw, kotId, billItems) {
  * from approved bill_modification_requests tied to this bill.
  */
 export async function buildAuditBillDetail(billId) {
-  const bill = await billingRepository.getBillById(billId);
-  if (!bill) return { error: 'Bill not found.' };
+  try {
+    const bill = await billingRepository.getBillById(billId);
+    if (!bill) return { error: 'Bill not found.' };
 
-  const billItems = await billingRepository.getBillItems(billId);
+    const billItems = await billingRepository.getBillItems(billId);
 
-  const approvedReqs = await billModificationRepository.listApprovedForBill(billId);
-  /** kot_item_id (kotId:menuItemId) → approving manager display name (last wins) */
-  const attribution = {};
-  for (const req of approvedReqs) {
-    const stored = req.approved_by_display_name && String(req.approved_by_display_name).trim();
-    const mgrName = stored || (await managerDisplayName(req.reviewed_by_manager_id));
-    const remList = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
-    for (const rem of remList) {
-      const itemId = rem.itemId;
-      const itemName = rem.itemName;
-      if (!itemId) continue;
-      const bi =
-        billItems.find(
-          (b) =>
-            typeof b.kot_item_id === 'string' &&
-            b.kot_item_id.endsWith(`:${itemId}`) &&
-            (itemName ? b.item_name === itemName || String(b.item_name || '').includes(String(itemName)) : true)
-        ) ||
-        billItems.find(
-          (b) => typeof b.kot_item_id === 'string' && b.kot_item_id.endsWith(`:${itemId}`)
-        );
-      if (bi?.kot_item_id) attribution[bi.kot_item_id] = mgrName;
+    const approvedReqs = await billModificationRepository.listApprovedForBill(billId);
+    /** kot_item_id (kotId:menuItemId) → approving manager display name (last wins) */
+    const attribution = {};
+    for (const req of approvedReqs) {
+      const stored = req.approved_by_display_name && String(req.approved_by_display_name).trim();
+      const mgrName = stored || (await managerDisplayName(req.reviewed_by_manager_id));
+      const remList = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
+      for (const rem of remList) {
+        const itemId = rem.itemId;
+        const itemName = rem.itemName;
+        if (!itemId) continue;
+        const bi =
+          billItems.find(
+            (b) =>
+              typeof b.kot_item_id === 'string' &&
+              b.kot_item_id.endsWith(`:${itemId}`) &&
+              (itemName ? b.item_name === itemName || String(b.item_name || '').includes(String(itemName)) : true)
+          ) ||
+          billItems.find(
+            (b) => typeof b.kot_item_id === 'string' && b.kot_item_id.endsWith(`:${itemId}`)
+          );
+        if (bi?.kot_item_id) attribution[bi.kot_item_id] = mgrName;
+      }
     }
-  }
 
-  let kots = [];
-  if (bill.session_id) {
-    kots = await kotRepository.listBySession(bill.session_id);
-  }
-  // Session can be stale or empty after clear-table; KOT rows may still exist by id.
-  if (!kots.length) {
-    const ids = kotIdsFromBillItems(billItems);
-    kots = ids.length ? await kotRepository.listByIds(ids) : [];
-  }
+    let kots = [];
+    if (bill.session_id) {
+      kots = await kotRepository.listBySession(bill.session_id);
+    }
+    // Session can be stale or empty after clear-table; KOT rows may still exist by id.
+    if (!kots.length) {
+      const ids = kotIdsFromBillItems(billItems);
+      kots = ids.length ? await kotRepository.listByIds(ids) : [];
+    }
 
-  const lines = [];
-  let billableSubtotal = 0;
-  let removedManagerValue = 0;
+    const lines = [];
+    let billableSubtotal = 0;
+    let removedManagerValue = 0;
 
-  for (const kot of kots) {
-    const kotLabel = kotShort(kot.id);
-    for (const raw of kot.items || []) {
-      const name = resolveItemDisplayName(raw, kot.id, billItems);
-      const unit =
-        Number(raw.price_snapshot ?? raw.priceSnapshot ?? raw.unit_price) || 0;
-      const origQty = Number(raw.qty) || 0;
-      const status = raw.status;
-      const menuId = raw.menu_item_id ?? raw.menuItemId;
-      const key = `${kot.id}:${menuId}`;
-      const managerName = attribution[key] || null;
+    for (const kot of kots) {
+      const kotLabel = kotShort(kot.id);
+      for (const raw of kot.items || []) {
+        const name = resolveItemDisplayName(raw, kot.id, billItems);
+        const unit =
+          Number(raw.price_snapshot ?? raw.priceSnapshot ?? raw.unit_price) || 0;
+        const origQty = Number(raw.qty) || 0;
+        const status = raw.status;
+        const menuId = raw.menu_item_id ?? raw.menuItemId;
+        const key = `${kot.id}:${menuId}`;
+        const managerName = attribution[key] || null;
 
-      if (status === 'pending') continue;
+        if (status === 'pending') continue;
 
-      if (status === 'done') {
-        const lineTotal = origQty * unit;
+        if (status === 'done') {
+          const lineTotal = origQty * unit;
+          lines.push({
+            kind: 'served',
+            name,
+            qty: origQty,
+            originalQty: null,
+            unit,
+            lineTotal,
+            kotLabel,
+            managerName: null,
+          });
+          billableSubtotal += lineTotal;
+          continue;
+        }
+
+        if (status === 'partially_removed') {
+          const finalQ = Number(raw.final_qty);
+          const remQ = Number(raw.removed_qty) || 0;
+          const fq = Number.isFinite(finalQ) ? finalQ : 0;
+          const lineTotal = fq * unit;
+          lines.push({
+            kind: 'partial',
+            name,
+            qty: fq,
+            originalQty: origQty,
+            unit,
+            lineTotal,
+            kotLabel,
+            managerName,
+          });
+          billableSubtotal += lineTotal;
+          removedManagerValue += remQ * unit;
+          continue;
+        }
+
+        if (status === 'removed_entirely') {
+          lines.push({
+            kind: 'removed_full',
+            name,
+            qty: origQty,
+            originalQty: origQty,
+            unit,
+            lineTotal: 0,
+            kotLabel,
+            managerName,
+          });
+          removedManagerValue += origQty * unit;
+          continue;
+        }
+
+        if (status === 'out_of_stock' || status === 'removed') {
+          lines.push({
+            kind: 'oos',
+            name,
+            qty: origQty,
+            originalQty: null,
+            unit,
+            lineTotal: 0,
+            kotLabel,
+            managerName: null,
+          });
+          continue;
+        }
+
+        if (status === 'cancelled') {
+          lines.push({
+            kind: 'cancelled',
+            name,
+            qty: origQty,
+            originalQty: null,
+            unit,
+            lineTotal: 0,
+            kotLabel,
+            managerName: null,
+          });
+          continue;
+        }
+
         lines.push({
-          kind: 'served',
+          kind: 'other',
           name,
           qty: origQty,
           originalQty: null,
           unit,
-          lineTotal,
+          lineTotal: origQty * unit,
           kotLabel,
           managerName: null,
+          status,
         });
-        billableSubtotal += lineTotal;
-        continue;
       }
-
-      if (status === 'partially_removed') {
-        const finalQ = Number(raw.final_qty);
-        const remQ = Number(raw.removed_qty) || 0;
-        const fq = Number.isFinite(finalQ) ? finalQ : 0;
-        const lineTotal = fq * unit;
-        lines.push({
-          kind: 'partial',
-          name,
-          qty: fq,
-          originalQty: origQty,
-          unit,
-          lineTotal,
-          kotLabel,
-          managerName,
-        });
-        billableSubtotal += lineTotal;
-        removedManagerValue += remQ * unit;
-        continue;
-      }
-
-      if (status === 'removed_entirely') {
-        lines.push({
-          kind: 'removed_full',
-          name,
-          qty: origQty,
-          originalQty: origQty,
-          unit,
-          lineTotal: 0,
-          kotLabel,
-          managerName,
-        });
-        removedManagerValue += origQty * unit;
-        continue;
-      }
-
-      if (status === 'out_of_stock' || status === 'removed') {
-        lines.push({
-          kind: 'oos',
-          name,
-          qty: origQty,
-          originalQty: null,
-          unit,
-          lineTotal: 0,
-          kotLabel,
-          managerName: null,
-        });
-        continue;
-      }
-
-      if (status === 'cancelled') {
-        lines.push({
-          kind: 'cancelled',
-          name,
-          qty: origQty,
-          originalQty: null,
-          unit,
-          lineTotal: 0,
-          kotLabel,
-          managerName: null,
-        });
-        continue;
-      }
-
-      lines.push({
-        kind: 'other',
-        name,
-        qty: origQty,
-        originalQty: null,
-        unit,
-        lineTotal: origQty * unit,
-        kotLabel,
-        managerName: null,
-        status,
-      });
     }
-  }
 
-  if (lines.length === 0 && billItems.length > 0) {
-    const fb = buildFallbackLinesFromBillItems(billItems);
-    lines.push(...fb.lines);
-    billableSubtotal = fb.billableSubtotal;
-    removedManagerValue = fb.removedManagerValue;
-  }
-
-  const { serviceRate, taxRate } = ratesImpliedByBill(bill);
-  const {
-    serviceChargeAmount: serviceCharge,
-    taxAmount: tax,
-    grandTotalBeforeDiscount: preDiscount,
-  } = computeChargesFromSubtotal(billableSubtotal, serviceRate, taxRate);
-  const discPct = Number(bill.discount_percent) || 0;
-  const { finalTotal: grandTotal } = applyDiscountPercent(preDiscount, discPct);
-
-  let discountAppliedByLabel = '';
-  const discUid = bill.discount_applied_by || bill.waiter_user_id;
-  if (discUid) {
-    const u = await userRepository.findById(discUid);
-    if (u) {
-      discountAppliedByLabel = u.name?.trim() || (u.username ? `@${u.username}` : '');
+    if (lines.length === 0 && billItems.length > 0) {
+      const fb = buildFallbackLinesFromBillItems(billItems);
+      lines.push(...fb.lines);
+      billableSubtotal = fb.billableSubtotal;
+      removedManagerValue = fb.removedManagerValue;
     }
-  }
 
-  return {
-    bill: {
-      id: bill.id,
-      shortId: kotShort(bill.id),
-      tableNumber: bill.table_number,
-      billStatus: bill.bill_status,
-      waiterUsername: bill.waiter_username,
-      discountAppliedByLabel: discountAppliedByLabel || null,
-    },
-    lines,
-    totals: {
-      billableSubtotal,
-      removedAmount: removedManagerValue,
-      serviceCharge,
-      tax,
-      discountPercent: discPct,
-      preDiscount,
-      grandTotal,
-    },
-  };
+    const { serviceRate, taxRate } = ratesImpliedByBill(bill);
+    const {
+      serviceChargeAmount: serviceCharge,
+      taxAmount: tax,
+      grandTotalBeforeDiscount: preDiscount,
+    } = computeChargesFromSubtotal(billableSubtotal, serviceRate, taxRate);
+    const discPct = Number(bill.discount_percent) || 0;
+    const { finalTotal: grandTotal } = applyDiscountPercent(preDiscount, discPct);
+
+    let discountAppliedByLabel = '';
+    const discUid = bill.discount_applied_by || bill.waiter_user_id;
+    if (discUid) {
+      const u = await userRepository.findById(discUid);
+      if (u) {
+        discountAppliedByLabel = u.name?.trim() || (u.username ? `@${u.username}` : '');
+      }
+    }
+
+    return {
+      bill: {
+        id: bill.id,
+        shortId: kotShort(bill.id),
+        tableNumber: bill.table_number,
+        billStatus: bill.bill_status,
+        waiterUsername: bill.waiter_username,
+        discountAppliedByLabel: discountAppliedByLabel || null,
+      },
+      lines,
+      totals: {
+        billableSubtotal,
+        removedAmount: removedManagerValue,
+        serviceCharge,
+        tax,
+        discountPercent: discPct,
+        preDiscount,
+        grandTotal,
+      },
+    };
+  } catch (err) {
+    throw err;
+  }
 }
 
 /**
@@ -339,82 +347,86 @@ export async function buildAuditBillDetail(billId) {
  * Shows done + partial lines only; no removed_entirely / cancelled / OOS.
  */
 export async function buildManagerBillDetail(billId) {
-  const bill = await billingRepository.getBillById(billId);
-  if (!bill) return { error: 'Bill not found.' };
+  try {
+    const bill = await billingRepository.getBillById(billId);
+    if (!bill) return { error: 'Bill not found.' };
 
-  const billItems = await billingRepository.getBillItems(billId);
-  const lines = [];
-  let billableSubtotal = 0;
+    const billItems = await billingRepository.getBillItems(billId);
+    const lines = [];
+    let billableSubtotal = 0;
 
-  for (const bi of billItems || []) {
-    if (bi.include_in_bill === false) continue;
+    for (const bi of billItems || []) {
+      if (bi.include_in_bill === false) continue;
 
-    const qty = Number(bi.qty) || 0;
-    const unit = Number(bi.unit_price) || 0;
-    const name = (bi.item_name && String(bi.item_name).trim()) || 'Unknown item';
-    const remQ = Number(bi.removed_qty) || 0;
-    const origQ = Number(bi.original_qty);
-    let kotLabel = '—';
-    const kid = bi.kot_item_id;
-    if (kid && typeof kid === 'string') {
-      const colon = kid.indexOf(':');
-      kotLabel = colon > 0 ? kotShort(kid.slice(0, colon)) : kotShort(kid);
+      const qty = Number(bi.qty) || 0;
+      const unit = Number(bi.unit_price) || 0;
+      const name = (bi.item_name && String(bi.item_name).trim()) || 'Unknown item';
+      const remQ = Number(bi.removed_qty) || 0;
+      const origQ = Number(bi.original_qty);
+      let kotLabel = '—';
+      const kid = bi.kot_item_id;
+      if (kid && typeof kid === 'string') {
+        const colon = kid.indexOf(':');
+        kotLabel = colon > 0 ? kotShort(kid.slice(0, colon)) : kotShort(kid);
+      }
+
+      const lineTotal = qty * unit;
+      if (remQ > 0 && Number.isFinite(origQ) && origQ > qty) {
+        lines.push({
+          kind: 'partial',
+          name,
+          qty,
+          originalQty: origQ,
+          unit,
+          lineTotal,
+          kotLabel,
+          managerName: null,
+        });
+      } else {
+        lines.push({
+          kind: 'served',
+          name,
+          qty,
+          originalQty: null,
+          unit,
+          lineTotal,
+          kotLabel,
+          managerName: null,
+        });
+      }
+      billableSubtotal += lineTotal;
     }
 
-    const lineTotal = qty * unit;
-    if (remQ > 0 && Number.isFinite(origQ) && origQ > qty) {
-      lines.push({
-        kind: 'partial',
-        name,
-        qty,
-        originalQty: origQ,
-        unit,
-        lineTotal,
-        kotLabel,
-        managerName: null,
-      });
-    } else {
-      lines.push({
-        kind: 'served',
-        name,
-        qty,
-        originalQty: null,
-        unit,
-        lineTotal,
-        kotLabel,
-        managerName: null,
-      });
-    }
-    billableSubtotal += lineTotal;
+    const { serviceRate, taxRate } = ratesImpliedByBill(bill);
+    const {
+      serviceChargeAmount: serviceCharge,
+      taxAmount: tax,
+      grandTotalBeforeDiscount: preDiscount,
+    } = computeChargesFromSubtotal(billableSubtotal, serviceRate, taxRate);
+    const discPct = Number(bill.discount_percent) || 0;
+    const { finalTotal: grandTotal } = applyDiscountPercent(preDiscount, discPct);
+
+    return {
+      bill: {
+        id: bill.id,
+        shortId: kotShort(bill.id),
+        tableNumber: bill.table_number,
+        billStatus: null,
+        waiterUsername: bill.waiter_username,
+        discountAppliedByLabel: null,
+      },
+      lines,
+      totals: {
+        billableSubtotal: Number(bill.subtotal) || billableSubtotal,
+        removedAmount: 0,
+        serviceCharge: Number(bill.service_charge) || serviceCharge,
+        tax: Number(bill.tax) || tax,
+        discountPercent: discPct,
+        preDiscount: Number(bill.subtotal) + Number(bill.service_charge) + Number(bill.tax) || preDiscount,
+        grandTotal: Number(bill.total) || grandTotal,
+      },
+    };
+  } catch (err) {
+    throw err;
   }
-
-  const { serviceRate, taxRate } = ratesImpliedByBill(bill);
-  const {
-    serviceChargeAmount: serviceCharge,
-    taxAmount: tax,
-    grandTotalBeforeDiscount: preDiscount,
-  } = computeChargesFromSubtotal(billableSubtotal, serviceRate, taxRate);
-  const discPct = Number(bill.discount_percent) || 0;
-  const { finalTotal: grandTotal } = applyDiscountPercent(preDiscount, discPct);
-
-  return {
-    bill: {
-      id: bill.id,
-      shortId: kotShort(bill.id),
-      tableNumber: bill.table_number,
-      billStatus: null,
-      waiterUsername: bill.waiter_username,
-      discountAppliedByLabel: null,
-    },
-    lines,
-    totals: {
-      billableSubtotal: Number(bill.subtotal) || billableSubtotal,
-      removedAmount: 0,
-      serviceCharge: Number(bill.service_charge) || serviceCharge,
-      tax: Number(bill.tax) || tax,
-      discountPercent: discPct,
-      preDiscount: Number(bill.subtotal) + Number(bill.service_charge) + Number(bill.tax) || preDiscount,
-      grandTotal: Number(bill.total) || grandTotal,
-    },
-  };
 }
