@@ -1,5 +1,7 @@
 import { postPrepAdjustmentRepository } from '../repositories/postPrepAdjustmentRepository';
+import { pagerRepository } from '../repositories/pagerRepository';
 import { userRepository } from '../repositories/userRepository';
+import { isValidDeviceCode, labelForDeviceCode } from '../lib/pagerPool';
 import { auditService } from './auditService';
 import { normalizePhone, VALID_ROLES } from '../lib/utils/auth';
 import { createId } from '../lib/utils/id';
@@ -8,6 +10,13 @@ function assertManager(currentUser) {
   if (!currentUser || currentUser.role !== 'manager') {
     throw new Error('Only manager can perform this action.');
   }
+}
+
+const MAC_NORMALIZED_REGEX = /^([0-9A-F]{2}:){5}[0-9A-F]{2}$/;
+
+/** MAC normalization and validation — only use this from managerService (single source of truth). */
+function normalizeMacFromInput(raw) {
+  return String(raw ?? '').trim().toUpperCase();
 }
 
 // Maps every valid role to its code prefix (e.g. kitchen_supervisor → 'KSV').
@@ -40,8 +49,6 @@ function randomIntInclusive(min, max) {
  *
  * Uniqueness is checked against ALL rows in `users` — including inactive and
  * soft-deleted records — because the UNIQUE (code) constraint covers every row.
- * The old nextCodeForRole used listUsers() which filters deleted_at IS NULL,
- * causing collisions when previously-deleted users' codes were recycled.
  */
 async function generateUniqueCode(role) {
   try {
@@ -245,6 +252,18 @@ export const managerService = {
     }
   },
 
+  async deactivateStaff({ managerUser, userId }) {
+    assertManager(managerUser);
+    await pagerRepository.releaseAssignmentsForWaiter(userId);
+    await userRepository.setActive(userId, false);
+    await auditService.log({
+      actor_user_id: managerUser.id,
+      action: 'STAFF_DEACTIVATED',
+      entity_type: 'user',
+      entity_id: userId,
+    });
+  },
+
   /**
    * Checks whether a PIN hash is currently unused by any active user.
    * Intended to support a manager-facing "PIN is available" hint without ever
@@ -284,5 +303,172 @@ export const managerService = {
     } catch (err) {
       throw err;
     }
+  },
+
+  /**
+   * Pager pool: devices (device_code + MAC) and waiter assignments.
+   */
+  async listPagerDashboard({ managerUser }) {
+    assertManager(managerUser);
+    const [devices, activeAssignments, staff] = await Promise.all([
+      pagerRepository.listDevices(),
+      pagerRepository.listActiveAssignments(),
+      userRepository.listUsers(),
+    ]);
+    const byPager = new Map(activeAssignments.map((a) => [a.pager_device_id, a]));
+    const waiterIdsWithPager = new Set(activeAssignments.map((a) => a.waiter_user_id));
+    const staffById = new Map(staff.map((u) => [u.id, u]));
+
+    const rows = devices.map((d) => {
+      const a = byPager.get(d.device_code) || null;
+      const waiter = a ? staffById.get(a.waiter_user_id) || null : null;
+      return {
+        ...d,
+        assignment: a,
+        waiter: waiter
+          ? { id: waiter.id, name: waiter.name, username: waiter.username || null }
+          : null,
+      };
+    });
+
+    const freePagerCodes = devices
+      .filter((d) => d.active && !byPager.has(d.device_code))
+      .map((d) => d.device_code);
+
+    const eligibleWaiters = staff.filter(
+      (u) => u.role === 'waiter' && u.active && !waiterIdsWithPager.has(u.id),
+    );
+
+    return { rows, freePagerCodes, eligibleWaiters };
+  },
+
+  async assignPagerToWaiter({ managerUser, deviceCode, waiterUserId }) {
+    assertManager(managerUser);
+    const cleanedCode = String(deviceCode || '').trim().toLowerCase();
+    if (!cleanedCode) throw new Error('Pager is required.');
+
+    const waiter = await userRepository.findById(waiterUserId);
+    if (!waiter) throw new Error('Waiter not found.');
+    if (waiter.role !== 'waiter') throw new Error('Only an active waiter can receive a pager.');
+    if (!waiter.active) throw new Error('Cannot assign a pager to an inactive waiter.');
+
+    const devices = await pagerRepository.listDevices();
+    const device = devices.find((d) => d.device_code === cleanedCode);
+    if (!device || !device.active) throw new Error('That pager is not available.');
+
+    const existingPager = await pagerRepository.findActiveAssignmentForPager(cleanedCode);
+    if (existingPager) throw new Error('That pager is already assigned.');
+
+    const existingWaiter = await pagerRepository.findActiveAssignmentForWaiter(waiterUserId);
+    if (existingWaiter) throw new Error('That waiter already has a pager. Unassign it first.');
+
+    const now = new Date().toISOString();
+    await pagerRepository.insertAssignment({
+      id: createId(),
+      pager_device_id: cleanedCode,
+      waiter_user_id: waiterUserId,
+      assigned_at: now,
+      released_at: null,
+    });
+
+    await auditService.log({
+      actor_user_id: managerUser.id,
+      action: 'PAGER_ASSIGNED',
+      entity_type: 'pager_device',
+      entity_id: cleanedCode,
+      after_json: { waiter_user_id: waiterUserId, waiter_name: waiter.name },
+    });
+  },
+
+  async unassignPagerFromDevice({ managerUser, deviceCode }) {
+    assertManager(managerUser);
+    const cleanedCode = String(deviceCode || '').trim().toLowerCase();
+    if (!cleanedCode) throw new Error('Pager is required.');
+
+    const open = await pagerRepository.findActiveAssignmentForPager(cleanedCode);
+    if (!open) throw new Error('That pager is not assigned.');
+
+    await pagerRepository.releaseAssignmentForPager(cleanedCode);
+    await auditService.log({
+      actor_user_id: managerUser.id,
+      action: 'PAGER_UNASSIGNED',
+      entity_type: 'pager_device',
+      entity_id: cleanedCode,
+      after_json: { waiter_user_id: open.waiter_user_id },
+    });
+  },
+
+  /**
+   * Register a new pager device (provisioning). MAC is trimmed, uppercased, and validated here only.
+   */
+  async registerPagerDevice({ managerUser, deviceCode, macAddress: rawMac, label: rawLabel }) {
+    assertManager(managerUser);
+    const code = String(deviceCode || '').trim().toLowerCase();
+    if (!isValidDeviceCode(code)) {
+      throw new Error(
+        'Invalid device code. Use lowercase letters, numbers, and underscores only (start with a letter, max 64 characters).',
+      );
+    }
+
+    const mac = normalizeMacFromInput(rawMac);
+    if (!MAC_NORMALIZED_REGEX.test(mac)) {
+      throw new Error('Invalid MAC format');
+    }
+
+    const existingCode = await pagerRepository.findDeviceByCode(code).catch(() => null);
+    if (existingCode) {
+      throw new Error('Device already exists');
+    }
+
+    const existingMac = await pagerRepository.findDeviceByMac(mac).catch(() => null);
+    if (existingMac) {
+      throw new Error('MAC already registered');
+    }
+
+    const cleanedLabel = String(rawLabel ?? '').trim();
+    const label = cleanedLabel || labelForDeviceCode(code);
+    if (label.length > 120) {
+      throw new Error('Label must be at most 120 characters.');
+    }
+
+    const devices = await pagerRepository.listDevices();
+    const maxOrd = devices.reduce((m, d) => Math.max(m, Number(d.display_order) || 0), 0);
+
+    const now = new Date().toISOString();
+    await pagerRepository.insertDevice({
+      device_code: code,
+      label,
+      mac_address: mac,
+      display_order: maxOrd + 1,
+      active: true,
+      created_at: now,
+      updated_at: now,
+    });
+
+    await auditService.log({
+      actor_user_id: managerUser.id,
+      action: 'PAGER_DEVICE_REGISTERED',
+      entity_type: 'pager_device',
+      entity_id: code,
+      after_json: { mac_address: mac },
+    });
+  },
+
+  /** Remove a device row only when it has no active assignment. */
+  async deletePagerDeviceIfUnassigned({ managerUser, deviceCode }) {
+    assertManager(managerUser);
+    const code = String(deviceCode || '').trim().toLowerCase();
+    if (!code) throw new Error('Pager is required.');
+
+    const open = await pagerRepository.findActiveAssignmentForPager(code);
+    if (open) throw new Error('Cannot delete an assigned pager. Return it to the pool first.');
+
+    await pagerRepository.deleteDevice(code);
+    await auditService.log({
+      actor_user_id: managerUser.id,
+      action: 'PAGER_DEVICE_DELETED',
+      entity_type: 'pager_device',
+      entity_id: code,
+    });
   },
 };

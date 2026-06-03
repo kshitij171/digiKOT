@@ -5,6 +5,7 @@ import KitchenApp from './components/KitchenApp';
 import ManagerApp from './components/ManagerApp';
 import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
+import PagerRegisterPage from './components/PagerRegisterPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
 
@@ -40,7 +41,7 @@ const ProtectedRoute = ({ requiredRole } = {}) => {
     return <Outlet />;
   }
 
-  // Minimal outer shell for kitchen_supervisor (no built-in logout in KitchenApp).
+  // Minimal outer shell for kitchen_supervisor and other non-self-contained roles (e.g. /notifications).
   return (
     <div className="app-container">
       <nav className="glass-nav">
@@ -80,6 +81,7 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute requiredRole="manager" />}>
         <Route path="/manager" element={<ManagerApp />} />
+        <Route path="/pager-register" element={<PagerRegisterPage />} />
       </Route>
 
       {/* Shared / index routes — any authenticated user */}

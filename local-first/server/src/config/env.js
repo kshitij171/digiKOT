@@ -4,8 +4,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-dotenv.config({ path: path.join(__dirname, '../../.env') });
-dotenv.config({ path: path.join(__dirname, '../../.env.local') });
+// __dirname = server/src/config → repo env lives at local-first/.env (three levels up)
+dotenv.config({ path: path.join(__dirname, '../../../.env') });
+dotenv.config({ path: path.join(__dirname, '../../../.env.local') });
 
 export function loadEnv() {
   const port = Number(process.env.PORT || 3000);

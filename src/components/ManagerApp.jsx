@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { auditService } from '../services/auditService';
 import { managerService } from '../services/managerService';
 import { billingService } from '../services/billingService';
 import { billModificationService } from '../services/billModificationService';
@@ -709,6 +710,180 @@ function StaffTab({ currentUser }) {
   );
 }
 
+// ── PAGERS TAB ────────────────────────────────────────────
+function PagersTab({ currentUser }) {
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const [dashboard, setDashboard] = useState({ rows: [], freePagerCodes: [], eligibleWaiters: [] });
+  const [assignForm, setAssignForm] = useState({ waiterUserId: '', deviceCode: '' });
+  const [assignSaving, setAssignSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!currentUser) return;
+    setLoading(true);
+    setErr('');
+    try {
+      const data = await managerService.listPagerDashboard({ managerUser: currentUser });
+      setDashboard(data);
+    } catch (e) {
+      setErr(e.message || 'Unable to load pagers.');
+    } finally {
+      setLoading(false);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const submitAssign = async (e) => {
+    e.preventDefault();
+    setMsg('');
+    setErr('');
+    if (!assignForm.waiterUserId || !assignForm.deviceCode) {
+      setErr('Select a waiter and a free pager.');
+      return;
+    }
+    setAssignSaving(true);
+    try {
+      await managerService.assignPagerToWaiter({
+        managerUser: currentUser,
+        waiterUserId: assignForm.waiterUserId,
+        deviceCode: assignForm.deviceCode,
+      });
+      setMsg('Pager assigned. Hand the device to the waiter.');
+      setAssignForm({ waiterUserId: '', deviceCode: '' });
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Unable to assign pager.');
+    } finally {
+      setAssignSaving(false);
+    }
+  };
+
+  const doUnassign = async (deviceCode) => {
+    setMsg('');
+    setErr('');
+    try {
+      await managerService.unassignPagerFromDevice({ managerUser: currentUser, deviceCode });
+      setMsg('Pager returned to pool.');
+      await load();
+    } catch (e) {
+      setErr(e.message || 'Unable to unassign.');
+    }
+  };
+
+  return (
+    <div>
+      <p className="mgr-section-h">
+        Physical pagers are registered in the database (device code + MAC). Assign a free pager to a waiter for shift handover; only free pagers appear in the list.
+      </p>
+      {err && <p className="staff-error-msg">{err}</p>}
+      {msg && <p className="staff-message">{msg}</p>}
+
+      <div className="staff-section">
+        <div className="staff-section-title">Assign pager</div>
+        <form onSubmit={submitAssign} className="staff-form">
+          <div className="staff-field">
+            <label>Waiter (no pager yet) *</label>
+            <select
+              className="staff-select"
+              value={assignForm.waiterUserId}
+              onChange={(e) => setAssignForm((p) => ({ ...p, waiterUserId: e.target.value }))}
+              required
+            >
+              <option value="">— Select —</option>
+              {dashboard.eligibleWaiters.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                  {w.username ? ` (@${w.username})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="staff-field">
+            <label>Free pager *</label>
+            <select
+              className="staff-select"
+              value={assignForm.deviceCode}
+              onChange={(e) => setAssignForm((p) => ({ ...p, deviceCode: e.target.value }))}
+              required
+            >
+              <option value="">— Select —</option>
+              {dashboard.freePagerCodes.map((code) => {
+                const d = dashboard.rows.find((r) => r.device_code === code);
+                return (
+                  <option key={code} value={code}>
+                    {d?.label || code} ({code})
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+          <button type="submit" className="btn-staff-submit" disabled={assignSaving || dashboard.freePagerCodes.length === 0}>
+            {assignSaving ? 'Saving…' : 'Assign pager'}
+          </button>
+        </form>
+      </div>
+
+      <div className="staff-section">
+        <div className="staff-section-title">Pager pool</div>
+        {loading ? (
+          <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Loading…</p>
+        ) : dashboard.rows.length === 0 ? (
+          <p style={{ color: '#475569', fontSize: '0.85rem' }}>
+            No pager devices in the database yet. After provisioning each ESP (serial MAC + device_code), insert rows into{' '}
+            <code style={{ fontSize: '0.78rem' }}>pager_devices</code> (see Supabase SQL editor).
+          </p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Device code</th>
+                  <th>MAC</th>
+                  <th>Status</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {dashboard.rows.map((r) => (
+                  <tr key={r.device_code}>
+                    <td>{r.label}</td>
+                    <td><code style={{ fontSize: '0.78rem' }}>{r.device_code}</code></td>
+                    <td><code style={{ fontSize: '0.78rem' }}>{r.mac_address}</code></td>
+                    <td>
+                      {!r.active ? (
+                        <span style={{ color: '#94a3b8' }}>Inactive device</span>
+                      ) : r.waiter ? (
+                        <>
+                          Assigned to <strong>{r.waiter.name}</strong>
+                          {r.waiter.username ? <span style={{ color: '#64748b' }}> @{r.waiter.username}</span> : null}
+                        </>
+                      ) : (
+                        <span style={{ color: '#22c55e' }}>Available</span>
+                      )}
+                    </td>
+                    <td>
+                      {r.active && r.assignment ? (
+                        <button type="button" className="btn-reactivate" onClick={() => doUnassign(r.device_code)}>
+                          Return to pool
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── BILLS TAB ─────────────────────────────────────────────
 function BillsTab() {
   const today = new Date().toISOString().slice(0, 10);
@@ -902,6 +1077,89 @@ function BillsTab() {
   );
 }
 
+// ── TOOLS TAB ─────────────────────────────────────────────
+function ToolsTab({ currentUser }) {
+  const [logs, setLogs] = useState([]);
+  const [form, setForm] = useState({ tableNumber: '', kotItemId: '', waiterUserId: '', reason: '' });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => auditService.subscribeRecent(setLogs), []);
+
+  const submitAdjustment = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await managerService.createPostPrepAdjustment?.({
+        managerUserId: currentUser?.id || 'manager',
+        waiterUserId: form.waiterUserId,
+        tableNumber: Number(form.tableNumber),
+        kotItemId: form.kotItemId,
+        reason: form.reason,
+      });
+      setForm({ tableNumber: '', kotItemId: '', waiterUserId: '', reason: '' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sField = (label, inputProps) => (
+    <div className="staff-field">
+      <label>{label}</label>
+      <input className="staff-input" {...inputProps} />
+    </div>
+  );
+
+  return (
+    <div>
+      <div className="staff-section">
+        <div className="staff-section-title">Post-Preparation Bill Adjustment</div>
+        <form onSubmit={submitAdjustment} className="staff-form">
+          {sField('Table Number *', { placeholder: 'e.g. 5', value: form.tableNumber, onChange: (e) => setForm((p) => ({ ...p, tableNumber: e.target.value })), required: true })}
+          {sField('KOT Item ID *', { placeholder: 'kot_item id', value: form.kotItemId, onChange: (e) => setForm((p) => ({ ...p, kotItemId: e.target.value })), required: true })}
+          {sField('Waiter User ID *', { placeholder: 'user id', value: form.waiterUserId, onChange: (e) => setForm((p) => ({ ...p, waiterUserId: e.target.value })), required: true })}
+          <div className="staff-field">
+            <label>Reason *</label>
+            <textarea
+              placeholder="Mandatory reason"
+              value={form.reason}
+              onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))}
+              required
+              rows={2}
+              className="staff-input"
+              style={{ resize: 'vertical' }}
+            />
+          </div>
+          <button type="submit" disabled={saving} className="btn-staff-submit" style={{ background: '#7c3aed' }}>
+            {saving ? 'Saving…' : 'Approve Adjustment'}
+          </button>
+        </form>
+      </div>
+
+      {/* Audit Feed */}
+      <div className="staff-section">
+        <div className="staff-section-title">Audit Feed</div>
+        {logs.length === 0 ? (
+          <p style={{ color: '#475569', fontSize: '0.85rem' }}>No audit records yet.</p>
+        ) : (
+          logs.map((log) => (
+            <div key={log.id} style={{ borderBottom: '1px solid #334155', padding: '0.5rem 0' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{log.action}</div>
+              <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+                {log.entity_type} · {log.entity_id} · {fmtDate(log.created_at)}
+              </div>
+              {log.remarks && (
+                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                  {log.remarks}
+                </div>
+              )}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── INVENTORY TAB ─────────────────────────────────────────
 function InventoryTab() {
   const [items, setItems]           = useState([]);
@@ -1039,6 +1297,8 @@ export default function ManagerApp() {
     { id: 'bills',         label: 'Bills' },
     { id: 'inventory',     label: 'Inventory' },
     { id: 'staff',         label: 'Staff' },
+    { id: 'pagers',        label: 'Pagers' },
+    { id: 'tools',         label: 'Tools' },
   ];
 
   return (
@@ -1080,6 +1340,8 @@ export default function ManagerApp() {
         {activeTab === 'bills'         && <BillsTab />}
         {activeTab === 'inventory'     && <InventoryTab />}
         {activeTab === 'staff'         && <StaffTab currentUser={currentUser} />}
+        {activeTab === 'pagers'        && <PagersTab currentUser={currentUser} />}
+        {activeTab === 'tools'         && <ToolsTab currentUser={currentUser} />}
       </div>
     </div>
   );

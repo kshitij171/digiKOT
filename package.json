@@ -12,7 +12,10 @@
     "supabase:status": "npx supabase status",
     "supabase:reset": "npx supabase db reset",
     "dev:local": "npm run supabase:start && vite",
-    "dev:lan": "vite --host 0.0.0.0",
+    "dev:lan": "node scripts/lan-demo.mjs",
+    "demo": "node scripts/lan-demo.mjs",
+    "demo:start": "npm run supabase:start && npm run demo",
+    "pager-bridge": "node pager-bridge/src/index.js",
     "whatsapp:send-bill": "node --env-file=.env scripts/send-bill-whatsapp.mjs"
   },
   "dependencies": {

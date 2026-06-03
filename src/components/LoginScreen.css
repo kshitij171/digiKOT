@@ -205,6 +205,38 @@
   opacity: 0.35;
 }
 
+/* ── Pager setup entry ─────────────────────────────────── */
+.numpad-footer {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(201, 168, 76, 0.15);
+  font-size: 0.78rem;
+  color: #94a3b8;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.numpad-footer-link {
+  background: transparent;
+  border: none;
+  color: #c9a84c;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: underline;
+  padding: 0;
+}
+
+.numpad-footer-link:hover {
+  color: #e8d5a3;
+}
+
+.numpad-footer-hint {
+  color: #64748b;
+  font-weight: 400;
+}
+
 .login-error {
   background: var(--color-danger-bg);
   border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
