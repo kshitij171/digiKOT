@@ -344,14 +344,16 @@ export const billModificationService = {
   },
 
   /**
-   * Subscribes to modification requests list (manager view).
+   * Subscribes to modification requests for a manager:
+   * all pending (any waiter) + only this manager's approved/rejected history.
+   * @param {string} managerUserId
    * @param {(rows: Array<object>) => void} onData
    * @returns {() => void} Cleanup function.
    */
-  subscribeRequests(onData) {
+  subscribeRequests(managerUserId, onData) {
     const load = async () => {
       try {
-        const reqs = await billModificationRepository.listAll(200);
+        const reqs = await billModificationRepository.listForManager(managerUserId, 200);
         onData(reqs || []);
       } catch (err) {
         throw err;
@@ -362,8 +364,37 @@ export const billModificationService = {
       subscribeFns: [
         (onEvent, onStatus) =>
           realtimeAdapter.subscribe({
-            channelName: 'bill-mod-requests',
+            channelName: `bill-mod-requests-mgr-${managerUserId || 'anon'}`,
             table: 'bill_modification_requests',
+            onEvent,
+            onStatus,
+          }),
+      ],
+    });
+  },
+
+  /**
+   * Pending count for tab badge (shared queue — all managers see the same total).
+   * @param {(count: number) => void} onData
+   * @returns {() => void} Cleanup function.
+   */
+  subscribePendingCount(onData) {
+    const load = async () => {
+      try {
+        const rows = await billModificationRepository.listPending();
+        onData((rows || []).length);
+      } catch (err) {
+        throw err;
+      }
+    };
+    return createSubscriptionController({
+      load,
+      subscribeFns: [
+        (onEvent, onStatus) =>
+          realtimeAdapter.subscribe({
+            channelName: 'bill-mod-pending-count',
+            table: 'bill_modification_requests',
+            filter: `status=eq.${BillModRequestStatus.PENDING}`,
             onEvent,
             onStatus,
           }),

@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { CATEGORY_ORDER } from '../data/categoryOrder';
 import { menuService } from '../services/menuService';
 import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
@@ -7,7 +8,7 @@ import PastKotsOverlay from './PastKotsOverlay';
 import './KitchenApp.css';
 
 export default function KitchenApp() {
-  const { currentUser, supervisorId, supervisorName } = useAuth();
+  const { currentUser, supervisorId, supervisorName, logoutUser } = useAuth();
   const effectiveSupervisorId =
     supervisorId ||
     (currentUser?.role === 'kitchen_supervisor' ? currentUser.id : null);
@@ -112,6 +113,13 @@ export default function KitchenApp() {
     }
   };
 
+  const oosCategories = useMemo(() => {
+    const inMenu = new Set(menuItems.map((item) => item.category));
+    return CATEGORY_ORDER.filter((c) => inMenu.has(c)).concat(
+      [...inMenu].filter((c) => !CATEGORY_ORDER.includes(c))
+    );
+  }, [menuItems]);
+
   const getElapsedTime = (createdAt) => {
     if (!createdAt) return "Just now";
     
@@ -125,31 +133,36 @@ export default function KitchenApp() {
 
   return (
     <div className="kitchen-layout">
-      <div className="kitchen-header">
-        <div className="kitchen-header-left">
-          <div className="kitchen-brand">
-            <span className="kitchen-brand-logo">O</span>
-            <div>
-              <div className="kitchen-brand-name">OPULENCE</div>
-              <div className="kitchen-brand-sub">Kitchen Display</div>
-            </div>
-          </div>
-          <div className="k-tabs">
-            <button className={`k-tab ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live Orders</button>
-            <button className={`k-tab ${activeTab === 'oos' ? 'active' : ''}`} onClick={() => setActiveTab('oos')}>Out of Stock</button>
+      <header className="kitchen-header">
+        <div className="kitchen-header-brand">
+          <span className="kitchen-brand-logo">O</span>
+          <div>
+            <div className="kitchen-brand-name">OPULENCE</div>
+            <div className="kitchen-brand-sub">Kitchen Display</div>
           </div>
         </div>
-        <div className="kitchen-header-right">
+
+        <div className="kitchen-header-tabs">
+          <div className="k-tabs">
+            <button type="button" className={`k-tab ${activeTab === 'live' ? 'active' : ''}`} onClick={() => setActiveTab('live')}>Live Orders</button>
+            <button type="button" className={`k-tab ${activeTab === 'oos' ? 'active' : ''}`} onClick={() => setActiveTab('oos')}>Out of Stock</button>
+          </div>
+        </div>
+
+        <div className="kitchen-header-actions">
           {effectiveSupervisorId && (
-            <button className="btn-past-kots" onClick={() => setShowPastKots(true)}>
-              📋 Past KOTs
+            <button type="button" className="btn-past-kots" onClick={() => setShowPastKots(true)}>
+              Past KOTs
             </button>
           )}
-          <div className="live-clock">
+          <div className="live-clock" aria-live="polite">
             {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
           </div>
+          <button type="button" className="kitchen-logout-btn" onClick={logoutUser}>
+            Log out
+          </button>
         </div>
-      </div>
+      </header>
 
       {showPastKots && effectiveSupervisorId && (
         <PastKotsOverlay
@@ -317,7 +330,7 @@ export default function KitchenApp() {
 
           <div className="oos-mark-section">
             <h3>Mark items as out of stock</h3>
-            {['Starters', 'Main Course', 'Drinks'].map(cat => {
+            {oosCategories.map(cat => {
               const catItems = menuItems.filter(item => !item.outOfStock && item.category === cat);
               if (catItems.length === 0) return null;
               return (
