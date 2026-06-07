@@ -17,7 +17,7 @@ const ROLE_HOME = {
 };
 
 // Roles whose components provide their own full-page layout (no outer shell).
-const SELF_CONTAINED_ROLES = ['manager', 'waiter'];
+const SELF_CONTAINED_ROLES = ['manager', 'waiter', 'kitchen_supervisor'];
 
 /**
  * ProtectedRoute — guards a route group by login state AND, optionally, by role.

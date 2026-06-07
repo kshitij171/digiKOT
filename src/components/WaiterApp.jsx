@@ -1804,9 +1804,6 @@ function OrderPage() {
                 </div>
 
                 <div className="summary-wa-block">
-                  <p className="wa-privacy-disclosure">
-                    We do not store any of your personal data.
-                  </p>
                   <label className="wa-field-label" htmlFor="summary-wa-phone">
                     Customer WhatsApp number <span className="wa-required">*</span>
                   </label>
@@ -1918,14 +1915,21 @@ function OrderPage() {
           <div><strong>Date:</strong> {new Date().toLocaleDateString()}</div>
           <div><strong>Time:</strong> {new Date().toLocaleTimeString()}</div>
         </div>
-        <div style={{ borderBottom: '1px dashed black', margin: '10px 0' }} />
-        {combinedConsumedItems.map((item, idx) => (
-          <div key={`${item?.kotId ?? ''}:${item?.itemId ?? item?.name ?? 'item'}:${idx}`} className="rcpt-item-row">
-            <div className="rcpt-item-name">{item.name}</div>
-            <div className="rcpt-item-calc">{item.qty} × ₹{item.price}</div>
-            <div>₹{item.qty * item.price}</div>
+        <div className="rcpt-divider" />
+        <div className="rcpt-items">
+          <div className="rcpt-items-header">
+            <span className="rcpt-col-name">Item</span>
+            <span className="rcpt-col-qty">Qty</span>
+            <span className="rcpt-col-amt">Amount</span>
           </div>
-        ))}
+          {combinedConsumedItems.map((item, idx) => (
+            <div key={`${item?.kotId ?? ''}:${item?.itemId ?? item?.name ?? 'item'}:${idx}`} className="rcpt-item-row">
+              <span className="rcpt-col-name">{item.name}</span>
+              <span className="rcpt-col-qty">{item.qty}</span>
+              <span className="rcpt-col-amt">₹{(item.qty * item.price).toFixed(2)}</span>
+            </div>
+          ))}
+        </div>
         <div className="rcpt-totals">
           <div className="rcpt-totals-row"><span>Subtotal:</span><span>₹{consumedSubtotal.toFixed(2)}</span></div>
           <div className="rcpt-totals-row"><span>Service ({serviceChargePct}%):</span><span>₹{serviceChargeAmt.toFixed(2)}</span></div>

@@ -103,10 +103,11 @@ function ModificationsTab({ currentUser }) {
   const [rejectReason, setRejectReason] = useState('');
   const [actionError, setActionError] = useState('');
 
-  // Real-time subscription
+  // Real-time subscription — scoped to this manager (pending shared + own history)
   useEffect(() => {
-    return billModificationService.subscribeRequests(setRequests);
-  }, []);
+    if (!currentUser?.id) return undefined;
+    return billModificationService.subscribeRequests(currentUser.id, setRequests);
+  }, [currentUser?.id]);
 
   const handleApprove = async (requestId) => {
     setActing(requestId);
@@ -167,8 +168,12 @@ function ModificationsTab({ currentUser }) {
     }
   };
 
-  const visible = requests.filter((r) => filter === 'all' || r.status === filter);
-  const pendingCount = requests.filter((r) => r.status === 'pending').length;
+  const managerId = currentUser?.id;
+  const scopedRequests = requests.filter(
+    (r) => r.status === 'pending' || r.reviewed_by_manager_id === managerId
+  );
+  const visible = scopedRequests.filter((r) => filter === 'all' || r.status === filter);
+  const pendingCount = scopedRequests.filter((r) => r.status === 'pending').length;
 
   return (
     <div>
@@ -951,36 +956,55 @@ function BillsTab() {
   };
 
   return (
-    <div>
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1rem' }}>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>From</label>
-          <input type="date" className="audit-date-input" value={dates.from} onChange={e => setDates(p => ({ ...p, from: e.target.value }))} />
+    <div className="bills-tab-root">
+      <div className="bills-toolbar">
+        <div className="bills-toolbar-dates">
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="bills-from">From</label>
+            <input
+              id="bills-from"
+              type="date"
+              className="audit-date-input"
+              value={dates.from}
+              onChange={(e) => setDates((p) => ({ ...p, from: e.target.value }))}
+            />
+          </div>
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="bills-to">To</label>
+            <input
+              id="bills-to"
+              type="date"
+              className="audit-date-input"
+              value={dates.to}
+              onChange={(e) => setDates((p) => ({ ...p, to: e.target.value }))}
+            />
+          </div>
         </div>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>To</label>
-          <input type="date" className="audit-date-input" value={dates.to} onChange={e => setDates(p => ({ ...p, to: e.target.value }))} />
-        </div>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.4rem' }}>
-          <input
-            type="text"
-            className="inv-search"
-            placeholder="Search waiter / bill ID…"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ minWidth: 180 }}
-          />
-          <button type="submit" style={{ padding: '0.4rem 0.85rem', background: 'var(--color-border-default)', color: 'var(--color-text-primary)', border: 'none', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.82rem' }}>
-            Search
-          </button>
+
+        <form className="bills-search-form" onSubmit={handleSearch}>
+          <label className="bills-field-label" htmlFor="bills-search">Search</label>
+          <div className="bills-search-row">
+            <input
+              id="bills-search"
+              type="search"
+              className="inv-search bills-search-input"
+              placeholder="Waiter or bill ID…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <button type="submit" className="btn-bills-search">
+              Search
+            </button>
+          </div>
         </form>
-        <div>
-          <label style={{ display: 'block', fontSize: '0.72rem', color: 'var(--color-text-secondary)', marginBottom: '0.2rem' }}>Filter by discount</label>
+
+        <div className="bills-field bills-field--discount">
+          <label className="bills-field-label" htmlFor="bills-discount-filter">Filter by discount</label>
           <select
-            className="audit-date-input"
+            id="bills-discount-filter"
+            className="audit-date-input bills-discount-select"
             value={discountFilter}
             onChange={(e) => setDiscountFilter(e.target.value)}
-            style={{ minWidth: 168, cursor: 'pointer' }}
           >
             <option value="all">All bills</option>
             <option value="gte50">Discount ≥ 50%</option>
@@ -998,7 +1022,7 @@ function BillsTab() {
       ) : displayedBills.length === 0 ? (
         <p className="audit-empty">No bills match this discount filter.</p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <div className="bills-table-wrap">
           <table className="audit-table">
             <thead>
               <tr>
@@ -1022,7 +1046,7 @@ function BillsTab() {
                 return (
                   <React.Fragment key={b.id}>
                     <tr
-                      style={{ cursor: 'pointer' }}
+                      className="bills-row-clickable"
                       onClick={() => toggleBillRow(b.id)}
                     >
                       <td>
@@ -1030,18 +1054,7 @@ function BillsTab() {
                         {discountBadges.map((badge) => (
                           <span
                             key={badge.key}
-                            style={{
-                              display: 'inline-block',
-                              marginLeft: '0.45rem',
-                              padding: '0.1rem 0.4rem',
-                              borderRadius: 4,
-                              fontSize: '0.68rem',
-                              fontWeight: 600,
-                              background: badge.high ? 'var(--color-danger-bg)' : 'var(--color-warning-bg)',
-                              color: badge.high ? 'var(--color-danger)' : 'var(--color-warning)',
-                              border: `1px solid ${badge.high ? 'color-mix(in srgb, var(--color-danger) 35%, transparent)' : 'color-mix(in srgb, var(--color-warning) 35%, transparent)'}`,
-                              verticalAlign: 'middle',
-                            }}
+                            className={`bill-discount-badge${badge.high ? ' bill-discount-badge--high' : ''}`}
                           >
                             {badge.label}
                           </span>
@@ -1051,14 +1064,14 @@ function BillsTab() {
                       <td><span className="tag-waiter">{b.waiter_username ? `@${b.waiter_username}` : '—'}</span></td>
                       <td>{includedItems.length}</td>
                       <td>{fmtAmt(b.subtotal)}</td>
-                      <td style={{ fontWeight: 700 }}>{fmtAmt(b.total)}</td>
-                      <td style={{ whiteSpace: 'nowrap', color: 'var(--color-text-muted)' }}>{fmtDate(b.cleared_at)}</td>
+                      <td className="bills-total-cell">{fmtAmt(b.total)}</td>
+                      <td className="bills-date-cell">{fmtDate(b.cleared_at)}</td>
                     </tr>
                     {isExpanded && (
                       <tr>
-                        <td colSpan={7} style={{ padding: '0.75rem 1rem', background: 'var(--color-bg-app)', verticalAlign: 'top' }}>
+                        <td colSpan={7} className="bills-expand-cell">
                           {auditLoading && (
-                            <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.82rem' }}>Loading annotated bill…</span>
+                            <span className="bills-expand-loading">Loading annotated bill…</span>
                           )}
                           {!auditLoading && (
                             <AuditBillDetailPanel pct={Number(b.discount_percent) || 0} auditBill={auditBill} />
@@ -1284,11 +1297,9 @@ export default function ManagerApp() {
   const [activeTab, setActiveTab] = useState('modifications');
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Track pending count for badge on Modifications tab
+  // Shared pending queue count for tab badge (all managers)
   useEffect(() => {
-    return billModificationService.subscribeRequests((reqs) => {
-      setPendingCount((reqs || []).filter((r) => r.status === 'pending').length);
-    });
+    return billModificationService.subscribePendingCount(setPendingCount);
   }, []);
 
   const tabs = [
@@ -1303,21 +1314,26 @@ export default function ManagerApp() {
 
   return (
     <div className="mgr-shell">
-      <div className="mgr-topbar">
-        <div>
-          <div className="mgr-topbar-brand">Manager's Interface</div>
-          <div className="mgr-topbar-sub">Audit · Approvals · Staff</div>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div className="mgr-topbar-user">@{currentUser?.username || currentUser?.name}</div>
-          <button
-            onClick={logoutUser}
-            style={{ padding: '0.3rem 0.75rem', background: 'transparent', border: '1px solid var(--color-border-default)', color: 'var(--color-text-secondary)', borderRadius: 6, cursor: 'pointer', fontSize: '0.78rem', fontFamily: 'inherit' }}
-          >
-            Logout
+      <header className="mgr-topbar">
+        <div className="mgr-topbar-user">
+          <div className="mgr-topbar-user-text">
+            <span className="mgr-topbar-user-label">Manager</span>
+            <span className="mgr-topbar-user-name">@{currentUser?.username || currentUser?.name}</span>
+          </div>
+          <button type="button" className="mgr-logout-btn mgr-logout-mobile" onClick={logoutUser}>
+            Log out
           </button>
         </div>
-      </div>
+        <div className="mgr-topbar-brand-block">
+          <div className="mgr-topbar-brand">OPULENCE</div>
+          <div className="mgr-topbar-sub">Audit · Approvals · Staff</div>
+        </div>
+        <div className="mgr-topbar-actions">
+          <button type="button" className="mgr-logout-btn mgr-logout-desktop" onClick={logoutUser}>
+            Log out
+          </button>
+        </div>
+      </header>
 
       <div className="mgr-tabs">
         {tabs.map((tab) => (

@@ -59,17 +59,17 @@ function renderBill(doc, input) {
   doc.moveDown(0.5);
 
   doc.font('Helvetica-Bold').fontSize(9);
-  doc.text('Item', 50, doc.y, { width: 240 });
-  doc.text('Qty × Rate', 290, doc.y, { width: 100 });
-  doc.text('Amount', 400, doc.y, { width: 145, align: 'right' });
+  doc.text('Item', 50, doc.y, { width: 260 });
+  doc.text('Qty', 315, doc.y, { width: 40, align: 'center' });
+  doc.text('Amount', 360, doc.y, { width: 185, align: 'right' });
   doc.moveDown(0.4);
   doc.font('Helvetica').fontSize(9);
 
   for (const item of items) {
     const y = doc.y;
-    doc.text(item.name, 50, y, { width: 230 });
-    doc.text(`${item.qty} × ${fmt(item.unitPrice)}`, 290, y, { width: 100 });
-    doc.text(fmt(item.lineTotal), 400, y, { width: 145, align: 'right' });
+    doc.text(item.name, 50, y, { width: 255 });
+    doc.text(String(item.qty), 315, y, { width: 40, align: 'center' });
+    doc.text(fmt(item.lineTotal), 360, y, { width: 185, align: 'right' });
     doc.moveDown(0.35);
   }
 
