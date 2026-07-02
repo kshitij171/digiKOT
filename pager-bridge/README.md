@@ -45,3 +45,34 @@ First run uses a baseline timestamp (now) and `after_id` = max UUID so **histori
 
 - Switch trigger from polling to Supabase Realtime on `notifications`.
 - MQTT QoS / retries if you need stronger delivery guarantees.
+
+---
+
+## Pager provisioning (ESP8266)
+
+Kitchen alerts reach pagers over MQTT topics `kot/pager/{device_code}/notify`. Each pager must be on **restaurant Wi‑Fi** and provisioned once via the **ROOT** install network.
+
+**Full step-by-step guide (ROOT → restaurant Wi‑Fi, daily behavior, factory reset):**
+
+→ **[firmware/pager-esp8266/README.md](../firmware/pager-esp8266/README.md)**
+
+### Short version
+
+1. Flash `firmware/pager-esp8266/pager-esp8266.ino` with `ROOT_SSID` / `ROOT_PASS` matching your install router.
+2. Laptop on ROOT → `npm run install:full` → open `/setup`.
+3. Save restaurant SSID, password, and **MQTT host** (laptop IP on restaurant LAN, port `1883`).
+4. Pager on ROOT shows **`on_root`** → **Push restaurant Wi-Fi**.
+5. Pager joins restaurant Wi‑Fi → setup table shows **`mqtt_ok`** → assign waiter in Manager.
+6. **pager-bridge** (started by `install:full`) forwards Supabase notifications to those MQTT topics.
+
+### Reset a pager
+
+- **Forget** on `/setup` only works when the pager is on ROOT (`on_root`).
+- Otherwise: Arduino IDE **Erase All Flash** + re-upload firmware (see firmware README).
+
+### MQTT topics (reference)
+
+| Topic | Direction | Purpose |
+|-------|-----------|---------|
+| `kot/pager/{device_code}/notify` | Server → pager | Kitchen alerts (JSON) |
+| `kot/pager/{device_code}/status` | Pager → server | `online` / LWT `offline` |

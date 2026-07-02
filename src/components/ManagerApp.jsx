@@ -777,7 +777,7 @@ function PagersTab({ currentUser }) {
   return (
     <div>
       <p className="mgr-section-h">
-        Physical pagers are registered in the database (device code + MAC). Assign a free pager to a waiter for shift handover; only free pagers appear in the list.
+        Pagers are registered during install setup (<code>/setup</code>). Assign a free pager to a waiter for shift handover; only free pagers appear in the list.
       </p>
       {err && <p className="staff-error-msg">{err}</p>}
       {msg && <p className="staff-message">{msg}</p>}
@@ -833,8 +833,7 @@ function PagersTab({ currentUser }) {
           <p style={{ color: '#64748b', fontSize: '0.85rem' }}>Loading…</p>
         ) : dashboard.rows.length === 0 ? (
           <p style={{ color: '#475569', fontSize: '0.85rem' }}>
-            No pager devices in the database yet. After provisioning each ESP (serial MAC + device_code), insert rows into{' '}
-            <code style={{ fontSize: '0.78rem' }}>pager_devices</code> (see Supabase SQL editor).
+            No pager devices yet. Run install setup at <code>/setup</code> with ESPs on the ROOT router, then return here to assign waiters.
           </p>
         ) : (
           <div style={{ overflowX: 'auto' }}>
@@ -844,7 +843,8 @@ function PagersTab({ currentUser }) {
                   <th>Label</th>
                   <th>Device code</th>
                   <th>MAC</th>
-                  <th>Status</th>
+                  <th>Provision</th>
+                  <th>Assignment</th>
                   <th />
                 </tr>
               </thead>
@@ -854,6 +854,9 @@ function PagersTab({ currentUser }) {
                     <td>{r.label}</td>
                     <td><code style={{ fontSize: '0.78rem' }}>{r.device_code}</code></td>
                     <td><code style={{ fontSize: '0.78rem' }}>{r.mac_address}</code></td>
+                    <td>
+                      <code style={{ fontSize: '0.78rem' }}>{r.provision_state || 'offline'}</code>
+                    </td>
                     <td>
                       {!r.active ? (
                         <span style={{ color: '#94a3b8' }}>Inactive device</span>

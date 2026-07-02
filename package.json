@@ -15,11 +15,15 @@
     "dev:lan": "node scripts/lan-demo.mjs",
     "demo": "node scripts/lan-demo.mjs",
     "demo:start": "npm run supabase:start && npm run demo",
-    "pager-bridge": "node pager-bridge/src/index.js",
+    "install:server": "npm run supabase:start && npm run demo",
+    "install:full": "node scripts/install-full.mjs",
+    "probe-discovery": "node scripts/probe-discovery.mjs",
+    "pager-bridge": "node --env-file=.env.local pager-bridge/src/index.js",
     "whatsapp:send-bill": "node --env-file=.env scripts/send-bill-whatsapp.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.105.1",
+    "mqtt": "^5.15.1",
     "pdfkit": "^0.18.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

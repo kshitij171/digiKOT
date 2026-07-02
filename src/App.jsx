@@ -5,7 +5,8 @@ import KitchenApp from './components/KitchenApp';
 import ManagerApp from './components/ManagerApp';
 import NotificationCenter from './components/NotificationCenter';
 import LoginScreen from './components/LoginScreen';
-import PagerRegisterPage from './components/PagerRegisterPage';
+import SetupLoginPage from './components/setup/SetupLoginPage';
+import SetupDashboardPage from './components/setup/SetupDashboardPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
 
@@ -70,6 +71,9 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={!currentUser ? <LoginScreen /> : <Navigate to={homeRoute} replace />} />
 
+      <Route path="/setup" element={<SetupLoginPage />} />
+      <Route path="/setup/dashboard" element={<SetupDashboardPage />} />
+
       {/* Role-isolated route groups — wrong role is redirected to their own home */}
       <Route element={<ProtectedRoute requiredRole="waiter" />}>
         <Route path="/waiter/*" element={<WaiterApp />} />
@@ -81,7 +85,6 @@ function AppRoutes() {
 
       <Route element={<ProtectedRoute requiredRole="manager" />}>
         <Route path="/manager" element={<ManagerApp />} />
-        <Route path="/pager-register" element={<PagerRegisterPage />} />
       </Route>
 
       {/* Shared / index routes — any authenticated user */}

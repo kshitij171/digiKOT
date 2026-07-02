@@ -135,13 +135,75 @@ async function pollOnce() {
   }
 }
 
+const STATUS_TOPIC = 'kot/pager/+/status';
+
+function parseStatusPayload(payloadBuf) {
+  const raw = String(payloadBuf?.toString?.() || payloadBuf || '').trim();
+  if (!raw) return null;
+
+  if (raw.startsWith('{')) {
+    try {
+      const parsed = JSON.parse(raw);
+      const status = String(parsed.status || '').trim().toLowerCase();
+      const ip = parsed.ip ? String(parsed.ip).trim() : null;
+      return { status, ip };
+    } catch {
+      return null;
+    }
+  }
+
+  return { status: raw.toLowerCase(), ip: null };
+}
+
+async function handlePagerStatusTopic(topic, payloadBuf) {
+  const parts = topic.split('/');
+  const deviceCode = parts.length >= 3 ? parts[2] : null;
+  if (!deviceCode) return;
+
+  const parsed = parseStatusPayload(payloadBuf);
+  if (!parsed?.status) return;
+
+  let provisionState = null;
+  if (parsed.status === 'online') provisionState = 'mqtt_ok';
+  else if (parsed.status === 'offline') provisionState = 'offline';
+  else return;
+
+  const now = new Date().toISOString();
+  const patch = {
+    provision_state: provisionState,
+    last_seen_at: now,
+    updated_at: now,
+  };
+  if (parsed.ip) patch.last_ip = parsed.ip;
+
+  const { error } = await supabase.from('pager_devices').update(patch).eq('device_code', deviceCode);
+
+  if (error) {
+    logLine({ level: 'error', msg: 'status_db_update_failed', deviceCode, error: error.message });
+    return;
+  }
+  logLine({ level: 'info', msg: 'status_updated', deviceCode, provisionState, ip: parsed.ip || null });
+}
+
 mqttClient = mqtt.connect(mqttUrl);
 
 mqttClient.on('connect', () => {
   logLine({ level: 'info', msg: 'mqtt_connected', mqttUrl });
+  mqttClient.subscribe(STATUS_TOPIC, { qos: 0 }, (err) => {
+    if (err) logLine({ level: 'error', msg: 'status_subscribe_failed', error: String(err) });
+    else logLine({ level: 'info', msg: 'status_subscribed', topic: STATUS_TOPIC });
+  });
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(pollOnce, POLL_MS);
   pollOnce();
+});
+
+mqttClient.on('message', (topic, payload) => {
+  if (topic.startsWith('kot/pager/') && topic.endsWith('/status')) {
+    handlePagerStatusTopic(topic, payload).catch((e) => {
+      logLine({ level: 'error', msg: 'status_handler_error', error: String(e?.message || e) });
+    });
+  }
 });
 
 mqttClient.on('error', (e) => {
