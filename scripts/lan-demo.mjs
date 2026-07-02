@@ -16,7 +16,7 @@ const DEMO_PATHS = [
   { label: 'Waiter — tables', path: '/waiter', pin: '1234 / 5678' },
   { label: 'Kitchen', path: '/kitchen', pin: '9999' },
   { label: 'Manager', path: '/manager', pin: '4321' },
-  { label: 'Pager register', path: '/pager-register', pin: '4321 (manager)' },
+  { label: 'Install setup', path: '/setup', pin: 'SETUP_UI_PASSWORD' },
 ];
 
 function isPrivateIpv4(addr) {
@@ -82,6 +82,7 @@ function printDemoBanner(ip) {
     '',
     '  Prerequisites: npm run supabase:start  (Docker kot-system running)',
     '  Demo PINs after seed: waiter 1234/5678 · kitchen 9999 · manager 4321',
+    '  Pager install: /setup (installer password) — see docs/PAGER_INSTALL_RUNBOOK.md',
     '',
     '  If phones cannot connect: allow firewall TCP 5173 + 54321 on this laptop.',
     '',

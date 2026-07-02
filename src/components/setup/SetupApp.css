@@ -1,0 +1,245 @@
+.setup-screen {
+  min-height: 100vh;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 1.5rem;
+}
+
+.setup-login-card {
+  max-width: 400px;
+  margin: 10vh auto;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 12px;
+  padding: 2rem;
+  text-align: center;
+}
+
+.setup-login-card h1 {
+  font-size: 1.35rem;
+  margin: 0 0 0.35rem;
+  color: #f8fafc;
+}
+
+.setup-login-card p {
+  color: #94a3b8;
+  font-size: 0.88rem;
+  margin: 0 0 1.5rem;
+}
+
+.setup-field {
+  text-align: left;
+  margin-bottom: 1rem;
+}
+
+.setup-field label {
+  display: block;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  margin-bottom: 0.35rem;
+}
+
+.setup-field input {
+  width: 100%;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+  font-size: 0.95rem;
+}
+
+.setup-btn {
+  width: 100%;
+  padding: 0.7rem 1rem;
+  border: none;
+  border-radius: 8px;
+  background: #3b82f6;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.setup-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.setup-btn-secondary {
+  background: #334155;
+}
+
+.setup-error {
+  color: #f87171;
+  font-size: 0.85rem;
+  margin: 0.75rem 0 0;
+}
+
+.setup-topbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #334155;
+}
+
+.setup-topbar h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.setup-badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #422006;
+  color: #fbbf24;
+  font-size: 0.72rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.setup-counts {
+  font-size: 1.05rem;
+  color: #cbd5e1;
+}
+
+.setup-section {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  padding: 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.setup-section h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1rem;
+  color: #f1f5f9;
+}
+
+.setup-checklist {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #94a3b8;
+  font-size: 0.88rem;
+  line-height: 1.6;
+}
+
+.setup-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.setup-helper {
+  font-size: 0.75rem;
+  color: #64748b;
+  margin-top: 0.25rem;
+}
+
+.setup-table-wrap {
+  overflow-x: auto;
+}
+
+.setup-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 1rem;
+}
+
+.setup-table th,
+.setup-table td {
+  padding: 0.65rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #334155;
+}
+
+.setup-table th {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.setup-table code {
+  font-size: 0.85em;
+}
+
+.setup-state {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.setup-state-on_root { background: #422006; color: #fbbf24; }
+.setup-state-push_pending { background: #1e3a5f; color: #60a5fa; }
+.setup-state-on_restaurant_wifi { background: #14532d; color: #4ade80; }
+.setup-state-mqtt_ok { background: #14532d; color: #22c55e; }
+.setup-state-wifi_failed { background: #450a0a; color: #f87171; }
+.setup-state-offline { background: #1f2937; color: #9ca3af; }
+
+.setup-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.setup-row-actions button {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+
+.setup-inline-input {
+  width: 7rem;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  border: 1px solid #475569;
+  background: #0f172a;
+  color: #f1f5f9;
+}
+
+.setup-toast {
+  margin-top: 0.75rem;
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  background: #14532d;
+  color: #bbf7d0;
+  font-size: 0.88rem;
+}
+
+.setup-info {
+  color: #94a3b8;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+.setup-empty {
+  color: #64748b;
+  font-size: 1rem;
+  padding: 1.5rem 0;
+}
+
+@media (min-width: 900px) {
+  .setup-table {
+    font-size: 1.1rem;
+  }
+  .setup-table th,
+  .setup-table td {
+    padding: 0.85rem 1rem;
+  }
+}

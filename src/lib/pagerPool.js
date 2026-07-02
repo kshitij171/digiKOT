@@ -8,10 +8,10 @@ export function isValidDeviceCode(code) {
   return typeof code === 'string' && DEVICE_CODE_REGEX.test(code);
 }
 
-/** Default label when none provided (pager_12 → "Pager 12", else title-cased code). */
+/** Default label when none provided (pager12 / pager_12 → "Pager 12", else title-cased code). */
 export function labelForDeviceCode(deviceCode) {
   const s = String(deviceCode || '').trim();
-  const m = /^pager_(\d+)$/.exec(s);
+  const m = /^pager_?(\d+)$/.exec(s);
   if (m) return `Pager ${Number(m[1])}`;
   if (!s) return 'Pager';
   return s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());

@@ -86,4 +86,33 @@ export const pagerRepository = {
       ],
     );
   },
+
+  async updateProvisionStatus(deviceCode, patch) {
+    const now = new Date().toISOString();
+    return dbAdapter.update(
+      'pager_devices',
+      { ...patch, updated_at: now },
+      [{ column: 'device_code', value: deviceCode }],
+    );
+  },
+
+  async upsertDeviceFromHello({ macAddress, lastIp, firmwareVersion, provisionState }) {
+    const existing = await this.findDeviceByMac(macAddress).catch(() => null);
+    const now = new Date().toISOString();
+    if (existing) {
+      await dbAdapter.update(
+        'pager_devices',
+        {
+          provision_state: provisionState,
+          last_ip: lastIp ?? existing.last_ip,
+          last_seen_at: now,
+          firmware_version: firmwareVersion ?? existing.firmware_version,
+          updated_at: now,
+        },
+        [{ column: 'mac_address', value: macAddress }],
+      );
+      return this.findDeviceByMac(macAddress);
+    }
+    throw new Error('Device not found — use setup hello API for registration');
+  },
 };
