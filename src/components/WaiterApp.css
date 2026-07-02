@@ -1105,17 +1105,6 @@
   max-width: 420px;
 }
 
-.wa-privacy-disclosure {
-  margin: 0 0 1rem;
-  padding: 0.55rem 0.75rem;
-  border-radius: var(--radius-sm);
-  background: var(--color-success-bg);
-  border: 1px solid color-mix(in srgb, var(--color-success) 30%, transparent);
-  color: var(--color-success);
-  font-size: 0.8rem;
-  line-height: 1.4;
-}
-
 .wa-field-label {
   display: block;
   font-size: 0.78rem;
@@ -1216,15 +1205,24 @@
 }
 
 .summary-wa-block {
-  margin-top: 1rem;
-  padding-top: 1rem;
+  margin-top: 0.65rem;
+  padding-top: 0.65rem;
   border-top: 1px dashed var(--color-border-default);
+}
+
+.summary-wa-block .wa-field-label {
+  margin-bottom: 0.2rem;
+}
+
+.summary-wa-block .wa-field-hint {
+  margin: 0.15rem 0 0.45rem;
+  font-size: 0.68rem;
 }
 
 .summary-wa-send-btn {
   width: 100%;
-  margin-top: 0.65rem;
-  padding: 0.55rem 1rem;
+  margin-top: 0.4rem;
+  padding: 0.45rem 1rem;
   border: none;
   border-radius: var(--radius-sm);
   background: var(--color-success);
@@ -1246,7 +1244,10 @@
 }
 
 .summary-modal-footer .wa-modal-input {
-  margin-bottom: 0.35rem;
+  height: 34px;
+  padding: 0.3rem 0.55rem;
+  font-size: 0.82rem;
+  margin-bottom: 0.15rem;
 }
 
 /* ── Continuous menu scroll area ────────────────────────── */
@@ -2365,7 +2366,7 @@
   border-radius: var(--radius-lg);
   width: 90%;
   max-width: 560px;
-  max-height: 85vh;
+  max-height: 90vh;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-lg);
@@ -2403,7 +2404,8 @@
 .summary-modal-body {
   overflow-y: auto;
   padding: 1rem 1.25rem;
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
 }
 
 .summary-section { margin-bottom: 1.25rem; }
@@ -2572,9 +2574,14 @@
 /* ── Billing Rows ───────────────────────────────────────── */
 .summary-modal-footer {
   border-top: 1px solid var(--color-border-default);
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   flex-shrink: 0;
   background: var(--color-bg-app);
+}
+
+.summary-modal-footer .billing-row {
+  padding: 0.2rem 0;
+  font-size: 0.82rem;
 }
 
 .billing-row {
@@ -2868,15 +2875,36 @@
   .rcpt-header p { margin: 2px 0; font-size: 11px; }
   .rcpt-meta { margin-bottom: 8px; }
   .rcpt-meta div { font-size: 11px; }
-  .rcpt-item-row {
-    display: flex;
-    justify-content: space-between;
-    gap: 4px;
-    padding: 2px 0;
-    font-size: 11px;
+  .rcpt-divider {
+    border-bottom: 1px dashed #000;
+    margin: 10px 0;
   }
-  .rcpt-item-name { flex: 1; }
-  .rcpt-item-calc { min-width: 60px; text-align: center; }
+  .rcpt-items-header,
+  .rcpt-item-row {
+    display: grid;
+    grid-template-columns: 1fr 32px 72px;
+    gap: 6px;
+    align-items: start;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+  .rcpt-items-header {
+    font-weight: bold;
+    border-bottom: 1px solid #000;
+    padding-bottom: 3px;
+    margin-bottom: 2px;
+  }
+  .rcpt-col-name {
+    min-width: 0;
+    word-break: break-word;
+  }
+  .rcpt-col-qty {
+    text-align: center;
+  }
+  .rcpt-col-amt {
+    text-align: right;
+    white-space: nowrap;
+  }
   .rcpt-totals { border-top: 1px dashed #000; margin-top: 6px; padding-top: 6px; }
   .rcpt-totals-row {
     display: flex;
