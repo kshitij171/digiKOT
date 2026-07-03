@@ -38,14 +38,13 @@ export async function authPreHandler(request, reply) {
   const secret = request.server.config.sessionSecret;
   const token = request.cookies?.[COOKIE_NAME];
   if (!token) {
-    reply.code(401).send({ error: 'Unauthorized' });
-    return;
+    return reply.code(401).send({ error: 'Unauthorized' });
   }
   try {
     request.user = await verifySession(token, secret);
   } catch {
     reply.clearCookie(COOKIE_NAME, { path: '/' });
-    reply.code(401).send({ error: 'Session expired' });
+    return reply.code(401).send({ error: 'Session expired' });
   }
 }
 

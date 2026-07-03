@@ -8,4 +8,5 @@ dist/
 tmp/
 data/
 server/db/fixtures/
+dev-logs/
 .DS_Store

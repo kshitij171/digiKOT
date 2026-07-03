@@ -10,6 +10,7 @@ export function loadServerEnv() {
     mqttPort: Number(process.env.MQTT_PORT || 1883),
     loginMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 5),
     loginLockoutMinutes: Number(process.env.LOGIN_LOCKOUT_MINUTES || 15),
+    devDiagnostics: process.env.DEV_DIAGNOSTICS === '1' && process.env.NODE_ENV !== 'production',
   };
 }
 

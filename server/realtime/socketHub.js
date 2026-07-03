@@ -1,5 +1,6 @@
 import { Server } from 'socket.io';
 import { verifySession, getCookieName } from '../middleware/auth.js';
+import { appendDevLog, isDevDiagnosticsEnabled } from '../lib/devDiagnostics.js';
 
 /** @type {Server | null} */
 let io = null;
@@ -27,6 +28,26 @@ export function attachSocketIo(httpServer, { corsOrigin = true, sessionSecret } 
 
   io.on('connection', (socket) => {
     socket.emit('system:hello', { t: Date.now(), userId: socket.data.user?.userId });
+    if (isDevDiagnosticsEnabled()) {
+      appendDevLog({
+        layer: 'server',
+        event: 'socket.connect',
+        userId: socket.data.user?.userId || null,
+        role: socket.data.user?.role || null,
+        meta: { socketClients: io.engine?.clientsCount ?? 0 },
+      });
+    }
+    socket.on('disconnect', () => {
+      if (isDevDiagnosticsEnabled()) {
+        appendDevLog({
+          layer: 'server',
+          event: 'socket.disconnect',
+          userId: socket.data.user?.userId || null,
+          role: socket.data.user?.role || null,
+          meta: { socketClients: io.engine?.clientsCount ?? 0 },
+        });
+      }
+    });
   });
 
   return io;

@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
 import { hashPin } from '../lib/utils/auth';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import './LoginScreen.css';
 
 const PIN_LENGTH = 4;
@@ -48,11 +49,14 @@ export default function LoginScreen() {
   const submitPinHash = async () => {
     setLoading(true);
     setError('');
+    const trace = startTrace('login');
     try {
       const pinHash = await hashPin(pinRef.current);
-      const user = await loginWithPinHash(pinHash);
+      const user = await withTraceId(trace.traceId, () => loginWithPinHash(pinHash));
+      endTrace(trace, 'ok');
       navigate(authService.getRouteForRole(user.role));
     } catch (err) {
+      endTrace(trace, 'error', err);
       setError(err.message || 'Incorrect PIN.');
       clearPin();
     } finally {

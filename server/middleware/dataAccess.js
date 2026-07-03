@@ -118,7 +118,8 @@ export function assertDeleteAccess(request, reply, table) {
   if (MANAGER_WRITE_TABLES.has(table) && !hasRole(user, ROLES.MANAGER)) {
     return deny(reply, 403, 'Forbidden');
   }
-  if (['bills', 'bill_items', 'kots', 'kot_items'].includes(table) && !hasRole(user, ROLES.MANAGER)) {
+  // Bills are manager-only; waiters delete cleared kots/kot_items during clear-table.
+  if (['bills', 'bill_items'].includes(table) && !hasRole(user, ROLES.MANAGER)) {
     return deny(reply, 403, 'Forbidden');
   }
   return true;

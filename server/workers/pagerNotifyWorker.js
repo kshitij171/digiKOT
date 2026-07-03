@@ -1,5 +1,6 @@
 import { getDb } from '../db/sqlite.js';
 import { publishJson, subscribeTopic } from '../mqtt/broker.js';
+import { appendDevLog, isDevDiagnosticsEnabled } from '../lib/devDiagnostics.js';
 
 const STATUS_TOPIC = 'kot/pager/+/status';
 const MAX_ATTEMPTS = 25;
@@ -44,6 +45,13 @@ export function startPagerNotifyWorker() {
 
       try {
         await publishJson(topic, payload);
+        if (isDevDiagnosticsEnabled()) {
+          appendDevLog({
+            layer: 'server',
+            event: 'mqtt.publish',
+            meta: { topic, notificationId: n.id, deviceId: n.pager_device_id },
+          });
+        }
         db.prepare(
           `UPDATE notifications
            SET mqtt_publish_status = 'published', mqtt_published_at = ?, mqtt_last_error = NULL
@@ -51,6 +59,14 @@ export function startPagerNotifyWorker() {
         ).run(new Date().toISOString(), n.id);
       } catch (e) {
         const msg = e?.message || String(e);
+        if (isDevDiagnosticsEnabled()) {
+          appendDevLog({
+            layer: 'server',
+            event: 'mqtt.publish.fail',
+            message: msg,
+            meta: { topic, notificationId: n.id, deviceId: n.pager_device_id },
+          });
+        }
         const attempts = (n.mqtt_attempt_count || 0) + 1;
         const status = attempts >= MAX_ATTEMPTS ? 'failed' : 'pending';
         db.prepare(

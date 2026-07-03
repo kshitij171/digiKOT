@@ -15,6 +15,7 @@ import {
   combinedConsumedItemsFromClearedKots,
 } from '../lib/billing/billTotals';
 import { CATEGORY_ORDER } from '../data/categoryOrder';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 
 /** URL-safe id for category sections and nav data-category attributes. */
 function categoryToSlug(name) {
@@ -947,18 +948,22 @@ function OrderPage() {
     if (checkedItems.length === 0 || kotSubmitting) return;
     setKotSubmitting(true);
     const startedAt = Date.now();
+    const trace = startTrace('submit_kot', { tableNumber: parseInt(id, 10), itemCount: checkedItems.length });
     try {
-      await kotService.createKotFromCart({
-        tableNumber: parseInt(id),
-        waiterUserId: currentUser?.id || null,
-        waiterUsername: currentUser?.username || null,
-        items: checkedItems.map(({ isChecked, ...rest }) => rest),
-        specialInstructions,
-      });
+      await withTraceId(trace.traceId, () =>
+        kotService.createKotFromCart({
+          tableNumber: parseInt(id),
+          waiterUserId: currentUser?.id || null,
+          waiterUsername: currentUser?.username || null,
+          items: checkedItems.map(({ isChecked, ...rest }) => rest),
+          specialInstructions,
+        })
+      );
       const elapsed = Date.now() - startedAt;
       if (elapsed < 1000) {
         await new Promise(resolve => setTimeout(resolve, 1000 - elapsed));
       }
+      endTrace(trace, 'ok');
       showToast('Order sent to kitchen!', 'success');
       setCartItems(prev => {
         const remaining = prev.filter(i => !i.isChecked);
@@ -967,7 +972,8 @@ function OrderPage() {
       });
     } catch (err) {
       console.error('KOT error:', err);
-      alert('Failed to submit KOT. Please try again.');
+      endTrace(trace, 'error', err);
+      alert(import.meta.env.VITE_DEV_DIAGNOSTICS === '1' ? err.message : 'Failed to submit KOT. Please try again.');
     } finally {
       setKotSubmitting(false);
     }
@@ -1118,19 +1124,24 @@ function OrderPage() {
     const itemsToRemove = Object.values(byLine);
 
     setRemovalSubmitting(true);
+    const trace = startTrace('bill_mod_request', { tableNumber: id ? parseInt(id, 10) : null, billId: lastBillId });
     try {
-      await billModificationService.requestItemRemoval({
-        billId: lastBillId,
-        waiterId: currentUser?.id || null,
-        waiterUsername: currentUser?.username || null,
-        tableNumber: id ? parseInt(id, 10) : null,
-        itemsToRemove,
-        reason: removalReason.trim(),
-      });
+      await withTraceId(trace.traceId, () =>
+        billModificationService.requestItemRemoval({
+          billId: lastBillId,
+          waiterId: currentUser?.id || null,
+          waiterUsername: currentUser?.username || null,
+          tableNumber: id ? parseInt(id, 10) : null,
+          itemsToRemove,
+          reason: removalReason.trim(),
+        })
+      );
+      endTrace(trace, 'ok');
       setRemovalMessage('Request sent to manager.');
       setRemovalSelections(prev => prev.map(i => ({ ...i, selected: false })));
       setRemovalReason('');
     } catch (err) {
+      endTrace(trace, 'error', err);
       setRemovalMessage(err.message || 'Failed to submit request.');
     } finally {
       setRemovalSubmitting(false);
@@ -1164,18 +1175,23 @@ function OrderPage() {
     }
     const ok = window.confirm(`Clear Table ${id}? This will end the session and cannot be undone.`);
     if (!ok) return;
+    const trace = startTrace('clear_table', { tableNumber: parseInt(id, 10) });
     try {
-      await kotService.clearTable(parseInt(id), currentUser?.id || null, {
-        waiterUserId: currentUser?.id || null,
-        waiterUsername: currentUser?.username || null,
-        serviceChargePct,
-        taxPct,
-        discountPercent: discountPct,
-      });
+      await withTraceId(trace.traceId, () =>
+        kotService.clearTable(parseInt(id), currentUser?.id || null, {
+          waiterUserId: currentUser?.id || null,
+          waiterUsername: currentUser?.username || null,
+          serviceChargePct,
+          taxPct,
+          discountPercent: discountPct,
+        })
+      );
+      endTrace(trace, 'ok');
       localStorage.removeItem(CART_KEY);
     } catch (err) {
       console.error('Clear table error:', err);
-      alert('Something went wrong.');
+      endTrace(trace, 'error', err);
+      alert(import.meta.env.VITE_DEV_DIAGNOSTICS === '1' ? err.message : 'Something went wrong.');
       return;
     }
     navigate('/waiter');

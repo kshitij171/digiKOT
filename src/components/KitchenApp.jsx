@@ -4,6 +4,7 @@ import { CATEGORY_ORDER } from '../data/categoryOrder';
 import { menuService } from '../services/menuService';
 import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import PastKotsOverlay from './PastKotsOverlay';
 import './KitchenApp.css';
 
@@ -45,16 +46,24 @@ export default function KitchenApp() {
     const kot = kots.find(k => k.id === kotId);
     if (!kot) return;
 
+    const trace = newStatus === 'done'
+      ? startTrace('mark_item_done', { kotId, itemId })
+      : null;
+
     try {
-      await kotService.markItemStatus({
-        kotId,
-        itemId,
-        status: newStatus,
-        kitchenUserId: currentUser?.id || null,
-        supervisorId: effectiveSupervisorId || null,
-        supervisorName: supervisorName || null,
-      });
+      await withTraceId(trace?.traceId, () =>
+        kotService.markItemStatus({
+          kotId,
+          itemId,
+          status: newStatus,
+          kitchenUserId: currentUser?.id || null,
+          supervisorId: effectiveSupervisorId || null,
+          supervisorName: supervisorName || null,
+        })
+      );
+      if (trace) endTrace(trace, 'ok');
     } catch (err) {
+      if (trace) endTrace(trace, 'error', err);
       console.error("Error updating item status:", err);
     }
   };

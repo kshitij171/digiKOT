@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "dev:server": "node --watch server/app.js",
+    "dev:server": "node --env-file=.env.local --watch server/app.js",
     "dev:web": "vite --host 0.0.0.0",
     "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
     "build": "vite build",
@@ -21,6 +21,7 @@
     "db:verify": "node scripts/verify-data-parity.mjs",
     "probe-discovery": "node scripts/probe-discovery.mjs",
     "smoke": "node scripts/smoke-production.mjs",
+    "test:dev-diag-off": "node scripts/verify-dev-diagnostics-off.mjs",
     "whatsapp:send-bill": "node --env-file=.env scripts/send-bill-whatsapp.mjs"
   },
   "dependencies": {

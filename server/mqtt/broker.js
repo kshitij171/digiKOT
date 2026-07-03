@@ -6,19 +6,37 @@ let broker = null;
 /** @type {import('node:net').Server | null} */
 let netServer = null;
 
-export async function startMqttBroker(port, host = '0.0.0.0') {
+export async function startMqttBroker(port, host = '0.0.0.0', { retries = 8, retryMs = 400 } = {}) {
   if (broker) return broker;
 
-  broker = aedes();
-  netServer = createServer(broker.handle);
-
-  return new Promise((resolve, reject) => {
-    netServer.listen(port, host, () => {
-      console.log(`MQTT broker listening on ${host}:${port}`);
-      resolve(broker);
-    });
-    netServer.on('error', reject);
-  });
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      broker = aedes();
+      netServer = createServer(broker.handle);
+      await new Promise((resolve, reject) => {
+        const onError = (err) => {
+          netServer?.off('error', onError);
+          reject(err);
+        };
+        netServer.once('error', onError);
+        netServer.listen(port, host, () => {
+          netServer.off('error', onError);
+          console.log(`MQTT broker listening on ${host}:${port}`);
+          resolve();
+        });
+      });
+      return broker;
+    } catch (err) {
+      broker = null;
+      netServer = null;
+      if (err?.code === 'EADDRINUSE' && attempt < retries) {
+        await new Promise((r) => setTimeout(r, retryMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error(`MQTT broker failed to bind ${host}:${port}`);
 }
 
 export function getMqttBroker() {
@@ -26,17 +44,43 @@ export function getMqttBroker() {
 }
 
 export async function stopMqttBroker() {
-  return new Promise((resolve) => {
-    if (!netServer) {
+  const server = netServer;
+  const activeBroker = broker;
+  netServer = null;
+  broker = null;
+
+  if (!server) return;
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
       resolve();
-      return;
-    }
-    netServer.close(() => {
-      broker?.close(() => {
-        broker = null;
-        netServer = null;
-        resolve();
-      });
+    };
+
+    const timer = setTimeout(() => {
+      try {
+        server.close();
+      } catch {
+        // ignore
+      }
+      try {
+        activeBroker?.close();
+      } catch {
+        // ignore
+      }
+      finish();
+    }, 1500);
+    timer.unref?.();
+
+    server.close(() => {
+      clearTimeout(timer);
+      if (activeBroker) {
+        activeBroker.close(finish);
+      } else {
+        finish();
+      }
     });
   });
 }

@@ -9,6 +9,7 @@ import SetupLoginPage from './components/setup/SetupLoginPage';
 import SetupDashboardPage from './components/setup/SetupDashboardPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
+import { DevLogRouteWatcher } from './lib/devLogInit.js';
 
 // Each role maps to exactly one home route prefix.
 const ROLE_HOME = {
@@ -100,6 +101,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
+        <DevLogRouteWatcher />
         <AppRoutes />
       </Router>
     </AuthProvider>

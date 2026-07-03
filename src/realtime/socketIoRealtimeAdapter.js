@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { devLog } from '../lib/devLog.js';
 
 let socket = null;
 const handlers = new Map();
@@ -14,6 +15,13 @@ function ensureSocket() {
   socket.on('connect', () => {
     for (const [, entry] of handlers) {
       entry.onResync?.();
+      entry.onStatus?.('SUBSCRIBED');
+    }
+  });
+
+  socket.on('disconnect', () => {
+    for (const [, entry] of handlers) {
+      entry.onStatus?.('CLOSED');
     }
   });
 
@@ -23,6 +31,7 @@ function ensureSocket() {
   ];
   for (const ev of domainEvents) {
     socket.on(ev, () => {
+      devLog('realtime.event', { meta: { event: ev } });
       for (const [, entry] of handlers) {
         entry.handler?.({ eventType: '*', new: {} });
       }
@@ -34,11 +43,15 @@ function ensureSocket() {
 
 export function createSocketIoRealtimeAdapter() {
   return {
-    subscribe({ channelName, table, filter, onData }) {
+    subscribe({ channelName, table, filter, onData, onEvent, onStatus }) {
       ensureSocket();
       const key = channelName || `${table}:${filter || 'all'}`;
-      const entry = { handler: onData, onResync: onData };
+      const handler = onData || onEvent;
+      const entry = { handler, onResync: handler, onStatus };
       handlers.set(key, entry);
+      if (socket?.connected) {
+        onStatus?.('SUBSCRIBED');
+      }
       return () => handlers.delete(key);
     },
   };

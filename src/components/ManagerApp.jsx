@@ -9,6 +9,7 @@ import AuditBillDetailPanel from './AuditBillDetailPanel';
 import { buildManagerBillDetail } from '../services/auditBillDetailService';
 import { useAuth } from '../context/AuthContext';
 import { hashPin, validatePin } from '../lib/utils/auth';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import './ManagerApp.css';
 
 const ROLE_LABELS = { waiter: 'Waiter', kitchen_supervisor: 'Kitchen Supervisor', manager: 'Manager' };
@@ -112,12 +113,17 @@ function ModificationsTab({ currentUser }) {
   const handleApprove = async (requestId) => {
     setActing(requestId);
     setActionError('');
+    const trace = startTrace('bill_mod_approve', { requestId });
     try {
-      await billModificationService.approveRequest(requestId, currentUser.id);
+      await withTraceId(trace.traceId, () =>
+        billModificationService.approveRequest(requestId, currentUser.id)
+      );
+      endTrace(trace, 'ok');
       setRequests((prev) =>
         prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
       );
     } catch (err) {
+      endTrace(trace, 'error', err);
       setActionError(err.message || 'Failed to approve.');
     } finally {
       setActing(null);
@@ -139,8 +145,12 @@ function ModificationsTab({ currentUser }) {
     }
     setActing(rejectModal.requestId);
     setActionError('');
+    const trace = startTrace('bill_mod_reject', { requestId: rejectModal.requestId });
     try {
-      await billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, reason);
+      await withTraceId(trace.traceId, () =>
+        billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, reason)
+      );
+      endTrace(trace, 'ok');
       const nowIso = new Date().toISOString();
       const mgrLabel =
         (currentUser?.name && String(currentUser.name).trim()) ||
@@ -162,6 +172,7 @@ function ModificationsTab({ currentUser }) {
       setRejectModal(null);
       setRejectReason('');
     } catch (err) {
+      endTrace(trace, 'error', err);
       setActionError(err.message || 'Failed to reject.');
     } finally {
       setActing(null);
