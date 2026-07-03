@@ -22,7 +22,7 @@ export const apiClient = {
     return apiFetch('/auth/login', { method: 'POST', body: JSON.stringify({ pinHash }) });
   },
   async logout() {
-    return apiFetch('/auth/logout', { method: 'POST' });
+    return apiFetch('/auth/logout', { method: 'POST', body: JSON.stringify({}) });
   },
   async me() {
     return apiFetch('/auth/me');

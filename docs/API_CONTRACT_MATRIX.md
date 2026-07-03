@@ -57,10 +57,14 @@ All require authenticated session except login/health/setup.
 | `pager-bridge` poll → publish | `notifications.mqtt_publish_status` worker |
 | Topics | `kot/pager/{code}/notify` / `status` (unchanged) |
 
-## Setup (still via Vite plugin in dev)
+## Setup (Fastify)
 
 | Endpoint | Notes |
 |----------|-------|
-| `/api/setup/*` | Vite plugin; uses `pagerProvisionDb.js` → SQLite |
+| `/api/setup/*` | Fastify `setupRoutes`; `pagerProvisionDb.js` → SQLite; in-memory Wi-Fi queue |
 
-Future: merge setup routes into Fastify.
+## WhatsApp
+
+| Endpoint | Auth |
+|----------|------|
+| `POST /api/whatsapp/send-bill` | Session cookie; **waiter** or **manager** |

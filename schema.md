@@ -1,16 +1,19 @@
 # SQL-First Schema
 
-This app now follows a portable SQL-first architecture where:
+This app follows a portable SQL-first architecture where:
 
 - Business rules live in the app service layer.
-- Supabase is the current SQL provider.
+- SQLite is the runtime database (`data/digikot.db`).
 - IDs are app-generated for portability.
+- Money is stored as INTEGER paise.
 
-Canonical DDL is in `sql/schema.sql`.
+Canonical DDL is in `server/db/migrations/001_init.sql`.
+
+Legacy Postgres DDL (reference only): `sql/schema.sql`.
 
 ## Core tables
 
-- `users` (`waiter|kitchen|manager`, PIN login model)
+- `users` (`waiter|kitchen_supervisor|manager`, PIN login model)
 - `restaurant_tables`
 - `table_sessions`
 - `menu_items`
@@ -22,10 +25,13 @@ Canonical DDL is in `sql/schema.sql`.
 - `notifications`
 - `audit_logs`
 - `postprep_adjustments`
+- `pager_devices`
+- `pager_assignments`
 
 ## Provider boundary rule
 
-No component, screen, or service should import Supabase directly.
+No component, screen, or service should call the database directly.
 
-- Allowed: `src/lib/db/`, `src/realtime/supabaseRealtimeAdapter.js`
-- Not allowed: `src/components/*`, `src/services/*`
+- Allowed: `src/repositories/*` → `src/lib/db/dbAdapter.js` → `src/lib/api/apiClient.js`
+- Allowed: `src/realtime/socketIoRealtimeAdapter.js`
+- Not allowed: `src/components/*`, `src/services/*` importing DB clients directly

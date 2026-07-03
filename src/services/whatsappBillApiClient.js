@@ -17,6 +17,7 @@ export async function requestSendBillOnWhatsApp({
   try {
     const res = await fetch('/api/whatsapp/send-bill', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         billId,

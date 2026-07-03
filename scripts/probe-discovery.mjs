@@ -35,7 +35,7 @@ socket.bind(0, () => {
 });
 
 setTimeout(() => {
-  console.error('no reply within 5s (is npm run install:full running?)');
+  console.error('no reply within 5s (is npm run dev:all or npm run start running?)');
   socket.close();
   process.exit(1);
 }, 5000);

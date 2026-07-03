@@ -30,7 +30,7 @@ Factory / install day                    Daily operation
 - **NodeMCU (ESP8266)** with OLED (SDA=D2, SCL=D1, 3.3V)
 - **ROOT router** — spare router, 2.4 GHz, no internet required
 - **Restaurant router** — 2.4 GHz SSID the pager will use every day
-- **Install laptop** — digiKOT repo, Docker, Node.js
+- **Install laptop** — digiKOT repo, Node.js 20+
 - **Same firmware** flashed on every pager (`pager-esp8266.ino`)
 
 ---
@@ -55,15 +55,14 @@ Factory / install day                    Daily operation
 
 ## One-time: prepare install laptop
 
-1. Copy `.env.example` → `.env.local` (set `SETUP_UI_PASSWORD`, Supabase keys).
-2. Start Docker Desktop.
-3. From repo root:
+1. Copy `.env.example` → `.env.local` (set `SETUP_UI_PASSWORD`).
+2. From repo root:
 
    ```bash
-   npm run install:full
+   npm run dev:all
    ```
 
-4. Note the **LAN UI** line (e.g. `http://192.168.1.105:5173`) — open **`/setup`** and enter the installer password.
+3. Note the **LAN UI** line (e.g. `http://192.168.1.105:5173`) — open **`/setup`** and enter the installer password.
 
 **MQTT host for the setup form** = laptop IP on **restaurant Wi‑Fi** (not ROOT IP), port **1883**.
 
@@ -77,7 +76,7 @@ Factory / install day                    Daily operation
 |------|--------|---------------------|
 | 1 | Power **ROOT router** and pager | — |
 | 2 | Connect **laptop Wi‑Fi** to ROOT (same SSID as `ROOT_SSID` in firmware) | Mac IP like `192.168.1.x` |
-| 3 | Run `npm run install:full` (Docker on) | `setup discovery responder listening on udp/50505`, `VITE ready` |
+| 3 | Run `npm run dev:all` | `setup discovery responder listening on udp/50505`, `VITE ready` |
 | 4 | Power pager near ROOT router | OLED: **SETUP** → then **device code** (e.g. `pager1`), MAC, IP |
 | 5 | Open `http://<laptop-ip>:5173/setup` | Login with installer password |
 | 6 | **Restaurant network** form: SSID, password, **MQTT host** (laptop IP on restaurant Wi‑Fi), port `1883` | Click **Save config** |
@@ -94,7 +93,7 @@ Factory / install day                    Daily operation
 | Step | Action | What you should see |
 |------|--------|---------------------|
 | 10 | Pager joins **restaurant Wi‑Fi** (credentials from Push) | OLED: **WiFi OK** → **MQTT OK** |
-| 11 | Laptop on **restaurant Wi‑Fi** (same network as pager) | `install:full` still running |
+| 11 | Laptop on **restaurant Wi‑Fi** (same network as pager) | `dev:all` or `npm run start` still running |
 | 12 | Open `/setup` → **Refresh** | State **`mqtt_ok`**, header **1 mqtt_ok** |
 | 13 | Manager → **Pagers** (`/login`, PIN 4321) | Assign pager to waiter |
 
@@ -113,7 +112,7 @@ Factory / install day                    Daily operation
 | **If restaurant Wi‑Fi fails** | Falls back to ROOT and shows **SETUP** (can re-push from `/setup`) |
 | **If MQTT fails** | Stays on restaurant Wi‑Fi, retries MQTT (does **not** return to ROOT) |
 
-**pager-bridge** on the laptop reads Supabase notifications and publishes to `kot/pager/{device_code}/notify`.
+The digiKOT server embeds MQTT and publishes kitchen alerts to `kot/pager/{device_code}/notify` when items are marked done.
 
 ---
 
@@ -125,7 +124,7 @@ Saved restaurant Wi‑Fi lives in **LittleFS flash**, not in the `.ino` file. Re
 
 Works only if the pager is in **ROOT mode** and can reach the laptop:
 
-1. Laptop on **ROOT** Wi‑Fi, `npm run install:full` running.
+1. Laptop on **ROOT** Wi‑Fi, `npm run dev:all` running.
 2. Pager on ROOT — OLED **SETUP** + IP, table state **`on_root`**.
 3. `/setup` → **Forget** on that row.
 4. Pager reboots, clears config, shows **SETUP** / **waiting…**.
@@ -163,10 +162,10 @@ Power pager near **ROOT only** (restaurant router off or out of range). If saved
 
 | Problem | Fix |
 |---------|-----|
-| Stuck **waiting…** | Laptop on same ROOT Wi‑Fi; `install:full` running; allow **node** in macOS Firewall |
+| Stuck **waiting…** | Laptop on same ROOT Wi‑Fi; server running (`npm run dev:all`); allow **node** in macOS Firewall |
 | **0 on ROOT** in setup | Same as above |
 | **Forget** does nothing | Pager on restaurant Wi‑Fi — use [Method B](#method-b--erase-flash-in-arduino-ide-full-wipe) |
-| **mqtt_ok** never appears | Laptop on restaurant Wi‑Fi; MQTT host = laptop **restaurant** IP; Docker/Mosquitto running |
+| **mqtt_ok** never appears | Laptop on restaurant Wi‑Fi; MQTT host = laptop **restaurant** IP; digiKOT server running (MQTT on :1883) |
 | Alert on laptop, frozen OLED | Reflash firmware with `mqtt.setBufferSize(1024)` (included in current sketch) |
 | Pager rejoins Jio after reflash | LittleFS not cleared — erase flash (Method B) |
 

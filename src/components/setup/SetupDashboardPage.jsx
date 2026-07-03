@@ -171,9 +171,8 @@ export default function SetupDashboardPage() {
       <section className="setup-section">
         <h2>Prerequisites</h2>
         <ul className="setup-checklist">
-          <li>Supabase running (<code>kot-system</code>)</li>
-          <li>Mosquitto on port 1883 — start <strong>before</strong> push</li>
-          <li><code>pager-bridge</code> running (mqtt_ok + kitchen alerts)</li>
+          <li>digiKOT server running (<code>npm run dev:all</code> or <code>npm run start</code>)</li>
+          <li>Embedded MQTT on port 1883 (started with the server)</li>
           <li>ROOT router powered, SSID <code>DigiKOT-ROOT</code></li>
           <li>Recommended: laptop Ethernet → ROOT + Wi-Fi → restaurant (dual-home)</li>
         </ul>

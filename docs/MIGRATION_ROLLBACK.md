@@ -27,8 +27,9 @@ If SQLite migration fails verification on a restaurant laptop, return to the leg
    ```bash
    psql "$DATABASE_URL" -f backup-YYYYMMDD.sql
    ```
-4. Start legacy stack: `npx supabase start`, `npm run install:full` (on pre-cleanup branch)
-5. Document failure in issue tracker; fix import script before retry
+4. Restore Postgres from backup and checkout a **pre-cleanup** git branch that still has `supabase/` and `pager-bridge/` (e.g. tag or commit before PR7)
+5. Start legacy stack on that branch: `npx supabase start`, then start pager-bridge and Vite manually
+6. Document failure in issue tracker; fix import script before retry
 
 ## SQLite rollback (new stack only)
 
