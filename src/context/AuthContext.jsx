@@ -54,6 +54,12 @@ export function AuthProvider({ children }) {
     if (session?.waiterSessionId) {
       await waiterSessionService.closeSession(session.waiterSessionId);
     }
+    try {
+      const { apiClient } = await import('../lib/api/apiClient');
+      await apiClient.logout();
+    } catch {
+      /* ignore */
+    }
     setSession(null);
     localStorage.removeItem(SESSION_KEY);
   };

@@ -1,0 +1,50 @@
+import { Server } from 'socket.io';
+import { verifySession, getCookieName } from '../middleware/auth.js';
+
+/** @type {Server | null} */
+let io = null;
+
+export function attachSocketIo(httpServer, { corsOrigin = true, sessionSecret } = {}) {
+  io = new Server(httpServer, {
+    cors: { origin: corsOrigin, credentials: true },
+  });
+
+  io.use(async (socket, next) => {
+    try {
+      const cookieHeader = socket.handshake.headers.cookie || '';
+      const match = cookieHeader.match(new RegExp(`${getCookieName()}=([^;]+)`));
+      const token = match?.[1];
+      if (!token) return next(new Error('Unauthorized'));
+      const user = await verifySession(decodeURIComponent(token), sessionSecret);
+      socket.data.user = user;
+      socket.join(`role:${user.role}`);
+      socket.join(`user:${user.userId}`);
+      next();
+    } catch {
+      next(new Error('Unauthorized'));
+    }
+  });
+
+  io.on('connection', (socket) => {
+    socket.emit('system:hello', { t: Date.now(), userId: socket.data.user?.userId });
+  });
+
+  return io;
+}
+
+export function getIo() {
+  return io;
+}
+
+export function emitDomainEvent(event, payload) {
+  if (!io) return;
+  io.emit(event, payload);
+}
+
+export function getSocketStats() {
+  if (!io) return { connected: false, connectedClients: 0 };
+  return {
+    connected: true,
+    connectedClients: io.engine?.clientsCount ?? 0,
+  };
+}

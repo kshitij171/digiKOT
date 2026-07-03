@@ -1,4 +1,5 @@
 import { userRepository } from '../repositories/userRepository';
+import { apiClient } from '../lib/api/apiClient';
 import { getRouteForRole, normalizePhone } from '../lib/utils/auth';
 
 // Fallback demo users — only used if the database is unreachable.
@@ -22,10 +23,16 @@ export const authService = {
     try {
       let user = null;
       try {
-        user = await userRepository.findByPinHash(pinHash);
+        const res = await apiClient.login(pinHash);
+        user = res?.user || null;
       } catch (error) {
-        console.warn('DB lookup failed, using demo users.', error);
-        user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
+        console.warn('API login failed, trying DB lookup.', error);
+        try {
+          user = await userRepository.findByPinHash(pinHash);
+        } catch (dbErr) {
+          console.warn('DB lookup failed, using demo users.', dbErr);
+          user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
+        }
       }
 
       if (!user) {

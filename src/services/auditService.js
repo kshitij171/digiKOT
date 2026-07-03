@@ -1,6 +1,6 @@
 import { auditRepository } from '../repositories/auditRepository';
+import { dbAdapter } from '../lib/db/dbAdapter';
 import { realtimeAdapter } from '../realtime/realtimeAdapter';
-import { supabase } from '../lib/db/supabaseClient';
 import { createSubscriptionController } from './subscriptionController';
 
 export const auditService = {
@@ -39,12 +39,15 @@ export const auditService = {
    */
   async listByDate({ fromDate, toDate } = {}) {
     try {
-      let q = supabase.from('audit_logs').select('*');
-      if (fromDate) q = q.gte('created_at', fromDate);
-      if (toDate) q = q.lte('created_at', toDate);
-      const { data, error } = await q.order('created_at', { ascending: false }).limit(500);
-      if (error) throw error;
-      return data || [];
+      const filters = [];
+      if (fromDate) filters.push({ column: 'created_at', operator: 'gte', value: fromDate });
+      if (toDate) filters.push({ column: 'created_at', operator: 'lte', value: toDate });
+      return dbAdapter.select('audit_logs', {
+        filters,
+        orderBy: 'created_at',
+        ascending: false,
+        limit: 500,
+      });
     } catch (err) {
       throw err;
     }

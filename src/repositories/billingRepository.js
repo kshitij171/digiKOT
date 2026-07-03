@@ -1,15 +1,9 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
-import { supabase } from '../lib/db/supabaseClient';
+import { apiClient } from '../lib/api/apiClient';
 import { createId } from '../lib/utils/id';
 
-async function runQuery(query) {
-  try {
-    const { data, error } = await query;
-    if (error) throw error;
-    return data || [];
-  } catch (err) {
-    throw err;
-  }
+async function runQuery(promise) {
+  return promise;
 }
 
 export const billingRepository = {
@@ -49,16 +43,7 @@ export const billingRepository = {
   /** Manager Bills tab: one row per Clear Table (cleared_at set). */
   async listClearedBills({ fromDate, toDate, search } = {}) {
     try {
-      let q = supabase.from('bills').select('*, bill_items(*)').not('cleared_at', 'is', null);
-      if (fromDate) q = q.gte('cleared_at', fromDate);
-      if (toDate) q = q.lte('cleared_at', toDate);
-      if (search) {
-        const s = search.trim();
-        if (s) q = q.or(`waiter_username.ilike.%${s}%,id.ilike.%${s}%`);
-      }
-      const { data, error } = await q.order('cleared_at', { ascending: false }).limit(500);
-      if (error) throw error;
-      return data || [];
+      return runQuery(apiClient.query('billing.listClearedBills', { fromDate, toDate, search }));
     } catch (err) {
       throw err;
     }
@@ -80,16 +65,7 @@ export const billingRepository = {
   /** Latest draft bill for table (print / removal — not yet cleared). */
   async getLatestDraftBillForTable(tableNumber) {
     try {
-      const { data, error } = await supabase
-        .from('bills')
-        .select('*')
-        .eq('table_number', tableNumber)
-        .is('cleared_at', null)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return apiClient.query('billing.getLatestDraftBillForTable', { tableNumber });
     } catch (err) {
       throw err;
     }
@@ -102,16 +78,7 @@ export const billingRepository = {
    */
   async getLatestClearedBillForTable(tableNumber) {
     try {
-      const { data, error } = await supabase
-        .from('bills')
-        .select('*')
-        .eq('table_number', tableNumber)
-        .not('cleared_at', 'is', null)
-        .order('cleared_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
+      return apiClient.query('billing.getLatestClearedBillForTable', { tableNumber });
     } catch (err) {
       throw err;
     }
@@ -322,10 +289,7 @@ export const billingRepository = {
    */
   async listVoidBills({ fromDate, toDate } = {}) {
     try {
-      let q = supabase.from('bills').select('*').eq('bill_status', 'void');
-      if (fromDate) q = q.gte('voided_at', fromDate);
-      if (toDate) q = q.lte('voided_at', toDate);
-      return runQuery(q.order('voided_at', { ascending: false }).limit(200));
+      return runQuery(apiClient.query('billing.listVoidBills', { fromDate, toDate }));
     } catch (err) {
       throw err;
     }
@@ -338,10 +302,7 @@ export const billingRepository = {
    */
   async listResettledBills({ fromDate, toDate } = {}) {
     try {
-      let q = supabase.from('bills').select('*').eq('bill_status', 'resettled');
-      if (fromDate) q = q.gte('resettled_at', fromDate);
-      if (toDate) q = q.lte('resettled_at', toDate);
-      return runQuery(q.order('resettled_at', { ascending: false }).limit(200));
+      return runQuery(apiClient.query('billing.listResettledBills', { fromDate, toDate }));
     } catch (err) {
       throw err;
     }
@@ -354,10 +315,7 @@ export const billingRepository = {
    */
   async listHighDiscountBills({ fromDate, toDate, threshold = 50 } = {}) {
     try {
-      let q = supabase.from('bills').select('*').gt('discount_percent', threshold);
-      if (fromDate) q = q.gte('discount_applied_at', fromDate);
-      if (toDate) q = q.lte('discount_applied_at', toDate);
-      return runQuery(q.order('discount_applied_at', { ascending: false }).limit(200));
+      return runQuery(apiClient.query('billing.listHighDiscountBills', { fromDate, toDate, threshold }));
     } catch (err) {
       throw err;
     }
