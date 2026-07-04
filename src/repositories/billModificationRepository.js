@@ -22,7 +22,6 @@ export const billModificationRepository = {
         bill_id: billId,
         waiter_id: waiterId || null,
         waiter_username: waiterUsername || null,
-        waiter_name: waiterUsername || null,
         table_number: tableNumber || null,
         items_to_remove: itemsToRemove,
         reason,
@@ -158,7 +157,7 @@ export const billModificationRepository = {
    * Manager approval: status + timestamps + optional note + display name.
    * Must run before KOT/bill side-effects (call order enforced in service).
    */
-  async markApproved(requestId, reviewedByManagerId, approvedByDisplayName, approvalNote) {
+  async markApproved(requestId, reviewedByManagerId, approvedByDisplayName, _approvalNote) {
     try {
       const now = new Date().toISOString();
       return dbAdapter.update(
@@ -168,13 +167,9 @@ export const billModificationRepository = {
           reviewed_by_manager_id: reviewedByManagerId || null,
           reviewed_at: now,
           approved_at: now,
-          approved_by: approvedByDisplayName || null,
-          approved_reason: approvalNote || null,
           approved_by_display_name: approvedByDisplayName || null,
-          approval_note: approvalNote || null,
           rejection_reason: null,
           rejected_at: null,
-          rejected_by: null,
           rejected_by_display_name: null,
         },
         [{ column: 'id', value: requestId }]
@@ -197,14 +192,10 @@ export const billModificationRepository = {
           reviewed_by_manager_id: reviewedByManagerId || null,
           reviewed_at: now,
           rejected_at: now,
-          rejected_by: rejectedByDisplayName || null,
           rejected_by_display_name: rejectedByDisplayName || null,
           rejection_reason: rejectionReason,
           approved_at: null,
-          approved_by: null,
-          approved_reason: null,
           approved_by_display_name: null,
-          approval_note: null,
         },
         [{ column: 'id', value: requestId }]
       );

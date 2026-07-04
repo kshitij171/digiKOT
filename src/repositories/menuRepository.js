@@ -14,18 +14,6 @@ export const menuRepository = {
   },
 
   /**
-   * Lists categories ordered by display order.
-   * @returns {Promise<Array<object>>}
-   */
-  async listCategories() {
-    try {
-      return dbAdapter.select('categories', { orderBy: 'display_order', ascending: true });
-    } catch (err) {
-      throw err;
-    }
-  },
-
-  /**
    * Updates a menu item's out_of_stock flag.
    * @param {string} id
    * @param {boolean} outOfStock

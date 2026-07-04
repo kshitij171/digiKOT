@@ -9,6 +9,7 @@ const DEMO_USERS = [
   { id: 'u_waiter_2',            username: 'waiter2', name: 'Waiter Two',             role: 'waiter',             phone: '9876543205', pin_hash: 'f8638b979b2f4f793ddb6dbd197e0ee25a7a6ea32b0ae22f5e3c5d119d839e75', active: true },
   { id: 'u_kitchen_supervisor_1',username: 'ksup1',   name: 'Kitchen Supervisor One', role: 'kitchen_supervisor', phone: '9876543203', pin_hash: '888df25ae35772424a560c7152a1de794440e0ea5cfee62828333a456a506e05', active: true },
   { id: 'u_manager_1',           username: 'mgr1',    name: 'Manager One',            role: 'manager',            phone: '9876543204', pin_hash: 'fe2592b42a727e977f055947385b709cc82b16b9a87f88c6abf3900d65d0cdc3', active: true },
+  { id: 'u_owner_1',             username: 'owner1',  name: 'Owner One',              role: 'owner',              phone: '9876543206', pin_hash: 'c1f330d0aff31c1c87403f1e4347bcc21aff7c179908723535f2b31723702525', active: true },
 ];
 
 export const authService = {

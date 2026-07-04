@@ -1075,7 +1075,8 @@ function OrderPage() {
    * individual unit rows (qty × 1) so the waiter can remove partial quantities.
    */
   const buildRemovalSelections = () => {
-    const consumedItems = combinedConsumedItems.filter((item) => item.status === 'done');
+    // Show all billable consumed lines (done + partially_removed with qty > 0).
+    const consumedItems = combinedConsumedItems.filter((item) => (Number(item.qty) || 0) > 0);
     return consumedItems.flatMap((item, rowIndex) =>
       Array.from({ length: item.qty }, (_, u) => ({
         ...item,
@@ -1157,6 +1158,10 @@ function OrderPage() {
 
   // ── Clear table ───────────────────────────────────────────
   const handleClearTable = async () => {
+    if (pendingBillRemovalRequest) {
+      alert('You cannot clear this table while a removal request is pending manager approval.');
+      return;
+    }
     // Block if active KOTs exist.
     if (openKots.length > 0) {
       alert('Table cannot be cleared. There is an active KOT or unpaid bill. Please wait for the kitchen to complete all orders.');
@@ -1292,7 +1297,7 @@ function OrderPage() {
               <button
                 type="button"
                 className="topbar-btn topbar-btn--danger clear-table-btn action-btn"
-                disabled={clearedKots.length === 0}
+                disabled={clearedKots.length === 0 || pendingBillRemovalRequest}
                 onClick={handleClearTable}
                 aria-label="Clear table"
               >
@@ -1635,15 +1640,18 @@ function OrderPage() {
       {/* ══ Summary Modal ══ */}
       {showSummary && (
         <div className="summary-overlay" onClick={() => setShowSummary(false)}>
-          <div className="summary-modal" onClick={e => e.stopPropagation()}>
+          <div className="summary-modal summary-modal--billing" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
-              <h3>Consumed — Table {id}</h3>
+              <h3>Order Summary — Table {id}</h3>
               <button type="button" className="summary-close" onClick={() => setShowSummary(false)} aria-label="Close summary">✕</button>
             </div>
-            <div className="summary-modal-body">
+            <div className="summary-modal-body summary-modal-body--billing">
 
               <div className="summary-section">
-                <h4 className="summary-section-title">Pending at Kitchen</h4>
+                <h4 className="summary-section-title">
+                  Pending at Kitchen
+                  {openKots.length > 0 && <span className="summary-section-count">{openKots.length}</span>}
+                </h4>
                 {openKots.length === 0 ? (
                   <div className="summary-empty">No pending items</div>
                 ) : (
@@ -1686,7 +1694,7 @@ function OrderPage() {
                 )}
               </div>
 
-              <div className="summary-section">
+              <div className="summary-section summary-section--consumed">
                 <h4 className="summary-section-title">Consumed</h4>
                 {clearedKots.length === 0 ? (
                   <div className="summary-empty">No items consumed yet</div>
@@ -1834,37 +1842,43 @@ function OrderPage() {
       {/* ══ Item Removal Request Modal ══ */}
       {showRemovalModal && (
         <div className="summary-overlay" onClick={() => setShowRemovalModal(false)}>
-          <div className="summary-modal" onClick={e => e.stopPropagation()}>
+          <div className="summary-modal summary-modal--removal" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
               <h3>Request Item Removal from Bill</h3>
               <button type="button" className="summary-close" onClick={() => setShowRemovalModal(false)} aria-label="Close removal request">✕</button>
             </div>
-            <div className="summary-modal-body">
+            <div className="summary-modal-body summary-modal-body--removal">
               <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>
                 Select items to remove. Bill is <strong>not</strong> changed until the manager approves.
               </p>
-              {removalSelections.map((item, index) => (
-                <label
-                  key={`${item.kotId}_${item.itemId}_${index}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.selected}
-                    onChange={() => toggleRemovalItem(item._key)}
-                    style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
-                  />
-                  <span style={{ flex: 1, fontSize: '0.85rem' }}>
-                    {item.name} ×1
-                    {item.kotId && (
-                      <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
-                        (KOT #{(String(item.kotId)).slice(-4).toUpperCase()})
+              {removalSelections.length === 0 ? (
+                <div className="summary-empty">No billable consumed items available for removal.</div>
+              ) : (
+                <div className="removal-items-list">
+                  {removalSelections.map((item, index) => (
+                    <label
+                      key={`${item.kotId}_${item.itemId}_${index}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.selected}
+                        onChange={() => toggleRemovalItem(item._key)}
+                        style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
+                      />
+                      <span style={{ flex: 1, fontSize: '0.85rem' }}>
+                        {item.name} ×1
+                        {item.kotId && (
+                          <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
+                            (KOT #{(String(item.kotId)).slice(-4).toUpperCase()})
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
-                </label>
-              ))}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
               <div style={{ marginTop: '1rem' }}>
                 <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
                   Reason for removal *
@@ -1883,17 +1897,17 @@ function OrderPage() {
                 </div>
               )}
             </div>
-            <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', background: 'var(--bg-off)' }}>
+            <div className="removal-modal-footer">
               <button
                 onClick={() => setShowRemovalModal(false)}
-                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit' }}
+                className="removal-modal-btn removal-modal-btn--secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={submitRemovalRequest}
                 disabled={removalSubmitting}
-                style={{ padding: '0.45rem 1.25rem', background: 'var(--gold)', color: 'var(--brand-dark)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}
+                className="removal-modal-btn removal-modal-btn--primary"
               >
                 {removalSubmitting ? 'Sending…' : 'Send to Manager'}
               </button>

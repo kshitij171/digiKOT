@@ -10,18 +10,20 @@ Canonical DDL is in `sql/schema.sql`.
 
 ## Core tables
 
-- `users` (`waiter|kitchen|manager`, PIN login model)
+- `users` (`waiter|kitchen_supervisor|manager|owner`, PIN login model)
 - `restaurant_tables`
 - `table_sessions`
-- `menu_items`
+- `menu_items` (grouped by text `category`; no separate categories table)
 - `kots`
 - `kot_items`
 - `cancel_requests`
-- `bills`
-- `bill_items`
+- `bills` (includes `items` jsonb — line-item snapshots)
+- `bill_modification_requests`
 - `notifications`
 - `audit_logs`
-- `postprep_adjustments`
+- `pager_devices` / `pager_assignments` (Supabase migration)
+
+Operational log retention: `purge_old_operational_logs()` (manager Tools tab).
 
 ## Provider boundary rule
 

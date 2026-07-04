@@ -127,11 +127,11 @@ export const billModificationService = {
   },
 
   /**
-   * Manager approval — strict order:
-   * 1) Persist approval on request (await)
-   * 2) Apply KOT item qty/status + verify read-after-write
-   * 3) Void existing printed bill (preserve audit row)
-   * 4) Notify + audit log
+   * Manager approval flow:
+   * 1) Validate request + target rows still exist
+   * 2) Apply KOT item qty/status
+   * 3) Mark request approved
+   * 4) Void stale bill + notify + audit
    */
   async approveRequest(requestId, managerUserId, options = {}) {
     try {
@@ -158,7 +158,45 @@ export const billModificationService = {
         /* keep default */
       }
 
-      // ── STEP 1 — Mark request approved (must complete before KOT updates) ──
+      const itemsToRemove = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
+      const billItems = await billingRepository.getBillItems(req.bill_id);
+      const bill = await billingRepository.getBillById(req.bill_id);
+
+      if (bill?.cleared_at) {
+        throw new Error(
+          'This request can no longer be approved because the table was already cleared. Ask the waiter to raise a new request before clearing.'
+        );
+      }
+
+      const updates = [];
+
+      // ── STEP 1 — Validate and collect item mutations ──
+      for (const itemToRemove of itemsToRemove) {
+        const billItem = findBillLineForRemoval(billItems, itemToRemove);
+        if (!billItem?.kot_item_id) {
+          throw new Error('Could not match one or more removal items to the current bill lines.');
+        }
+        const colonIdx = billItem.kot_item_id.indexOf(':');
+        if (colonIdx === -1) {
+          throw new Error('Invalid bill line mapping found while approving removal.');
+        }
+        const kotId = billItem.kot_item_id.slice(0, colonIdx);
+        const menuItemId = billItem.kot_item_id.slice(colonIdx + 1);
+        const removalQty = Number(itemToRemove.qty);
+        if (!Number.isFinite(removalQty) || removalQty <= 0) {
+          throw new Error('Invalid removal quantity in request.');
+        }
+        updates.push({ kotId, menuItemId, removalQty });
+      }
+
+      // ── STEP 2 — Apply kot_items updates ──
+      for (const update of updates) {
+        await kotRepository.applyPartialRemoval(update.kotId, update.menuItemId, update.removalQty);
+
+        await kotRepository.getByIdWithItems(update.kotId);
+      }
+
+      // ── STEP 3 — Persist approval metadata after successful updates ──
       await billModificationRepository.markApproved(
         requestId,
         managerUserId,
@@ -166,38 +204,15 @@ export const billModificationService = {
         approvalNote
       );
 
-      const itemsToRemove = Array.isArray(req.items_to_remove) ? req.items_to_remove : [];
-      const billItems = await billingRepository.getBillItems(req.bill_id);
-
-      // ── STEP 2 — Update kot_items (SQL rows, not JSON documents) ──
-      for (const itemToRemove of itemsToRemove) {
-        const billItem = findBillLineForRemoval(billItems, itemToRemove);
-        if (!billItem?.kot_item_id) {
-          console.warn('[approveRemoval] No bill line match — skipping item');
-          continue;
-        }
-        const colonIdx = billItem.kot_item_id.indexOf(':');
-        if (colonIdx === -1) continue;
-        const kotId = billItem.kot_item_id.slice(0, colonIdx);
-        const menuItemId = billItem.kot_item_id.slice(colonIdx + 1);
-        const removalQty = Number(itemToRemove.qty);
-        if (!Number.isFinite(removalQty) || removalQty <= 0) continue;
-
-        await kotRepository.applyPartialRemoval(kotId, menuItemId, removalQty);
-
-        await kotRepository.getByIdWithItems(kotId);
-      }
-
-      // ── STEP 3 — Void bill (do not delete): only issued bills ──
-      const bill = await billingRepository.getBillById(req.bill_id);
-      if (bill && !bill.cleared_at && !bill.voided_at) {
+      // ── STEP 4 — Void stale bill (do not delete) ──
+      if (bill && !bill.voided_at) {
         await billingRepository.voidBill(req.bill_id, {
           voidedBy: managerUserId,
           voidReason: 'manager_approved_removal',
         });
       }
 
-      // ── STEP 4 — Notify waiter (realtime also updates kot_items subscription) ──
+      // ── STEP 5 — Notify waiter (realtime also updates kot_items subscription) ──
       if (req.waiter_id) {
         try {
           await notificationService.createNotification({
@@ -226,9 +241,15 @@ export const billModificationService = {
           billId: req.bill_id,
           itemsRemoved: itemsToRemove.length,
           approvedByDisplayName,
+          approvalNote: approvalNote || null,
         },
       });
     } catch (err) {
+      if (/kot_item not found/i.test(String(err?.message || ''))) {
+        throw new Error(
+          'This request can no longer be approved because the original KOT item is no longer available (likely after table clear).'
+        );
+      }
       throw err;
     }
   },

@@ -2366,11 +2366,19 @@
   border-radius: var(--radius-lg);
   width: 90%;
   max-width: 560px;
-  max-height: 90vh;
+  max-height: 96vh;
   display: flex;
   flex-direction: column;
   box-shadow: var(--shadow-lg);
   overflow: hidden;
+}
+
+.summary-modal--billing {
+  max-height: 96vh;
+}
+
+.summary-modal--removal {
+  max-height: 92vh;
 }
 
 .summary-modal-header {
@@ -2408,9 +2416,24 @@
   min-height: 0;
 }
 
+.summary-modal-body--billing {
+  min-height: 220px;
+}
+
+.summary-modal-body--removal {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
 .summary-section { margin-bottom: 1.25rem; }
+.summary-section:last-child { margin-bottom: 0; }
 
 .summary-section-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.75rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -2418,6 +2441,32 @@
   color: var(--color-text-secondary);
   margin: 0 0 0.6rem;
 }
+
+.summary-section-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--color-brand-primary);
+  color: #fff;
+  font-size: 0.68rem;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* Cap the Pending list height so it can never push the Consumed section out of
+   view; each list scrolls on its own when long. */
+.summary-section .kot-log {
+  max-height: 34vh;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+  padding-right: 0.15rem;
+}
+.summary-section--consumed .kot-log { max-height: 46vh; }
 
 .summary-empty {
   font-size: 0.82rem;
@@ -2577,6 +2626,53 @@
   padding: 0.75rem 1.25rem;
   flex-shrink: 0;
   background: var(--color-bg-app);
+  overflow-y: visible;
+}
+
+.removal-items-list {
+  flex: 1;
+  min-height: 140px;
+  max-height: 46vh;
+  overflow-y: auto;
+  padding-right: 0.15rem;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+.removal-modal-footer {
+  padding: 0.75rem 1.25rem;
+  border-top: 1px solid var(--color-border-default);
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  background: var(--color-bg-app);
+  flex-shrink: 0;
+}
+
+.removal-modal-btn {
+  padding: 0.45rem 1rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.85rem;
+}
+
+.removal-modal-btn--secondary {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+}
+
+.removal-modal-btn--primary {
+  background: var(--color-brand-primary);
+  border: 1px solid var(--color-brand-primary);
+  color: var(--color-text-inverse);
+  font-weight: 700;
+}
+
+.removal-modal-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .summary-modal-footer .billing-row {

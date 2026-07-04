@@ -470,10 +470,11 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
 
 - NEVER add a Supabase service role key to any frontend file.
 - NEVER disable or remove the ProtectedRoute wrapper from any route.
-- NEVER delete or truncate audit_logs or notifications records as
-  part of a feature — these are append-only operational logs.
 - NEVER call window.location.reload() to work around a stale state
   bug. Fix the subscription or state update instead.
+- Operational log retention is allowed only via `purge_old_operational_logs`
+  (manager Tools tab) or an approved migration — do not add ad-hoc DELETE
+  paths for `audit_logs` or `notifications` elsewhere.
 - NEVER use eval(), new Function(), or dangerouslySetInnerHTML with
   user-supplied content.
 - NEVER commit code with hardcoded Supabase URLs or keys, even as

@@ -1,9 +1,7 @@
 drop table if exists mqtt_outbox cascade;
 drop table if exists devices cascade;
-drop table if exists postprep_adjustments cascade;
 drop table if exists audit_logs cascade;
 drop table if exists notifications cascade;
-drop table if exists bill_items cascade;
 drop table if exists bills cascade;
 drop table if exists cancel_requests cascade;
 drop table if exists kot_items cascade;

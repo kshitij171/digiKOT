@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { authService } from '../services/authService';
-import { waiterSessionService } from '../services/waiterSessionService';
 
 const AuthContext = createContext();
 const SESSION_KEY = 'appSession';
@@ -19,25 +18,13 @@ export function AuthProvider({ children }) {
     }
   });
 
-  /**
-   * Log in with a 4-digit PIN only.
-   * Creates a waiter_sessions record for users with the 'waiter' role.
-   */
+  /** Log in with a 4-digit PIN only. */
   const loginWithPinHash = async (pinHash) => {
     const user = await authService.loginWithPinHash(pinHash);
-
-    let waiterSessionId = null;
-    if (user.role === 'waiter') {
-      waiterSessionId = await waiterSessionService.openSession(
-        user.id,
-        window.navigator?.userAgent?.slice(0, 120) || null
-      );
-    }
 
     const next = {
       user,
       role: user.role,
-      waiterSessionId,
       // Kitchen supervisor identity — used for KOT first-touch ownership tagging
       supervisorId: user.role === 'kitchen_supervisor' ? user.id : null,
       supervisorName: user.role === 'kitchen_supervisor' ? (user.username || user.name || null) : null,
@@ -47,13 +34,7 @@ export function AuthProvider({ children }) {
     return user;
   };
 
-  /**
-   * Log out: close the waiter session record if present, then clear state.
-   */
   const logoutUser = async () => {
-    if (session?.waiterSessionId) {
-      await waiterSessionService.closeSession(session.waiterSessionId);
-    }
     setSession(null);
     localStorage.removeItem(SESSION_KEY);
   };

@@ -8,16 +8,18 @@ import LoginScreen from './components/LoginScreen';
 import PagerRegisterPage from './components/PagerRegisterPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { authService } from './services/authService';
+import { roleSatisfiesRequiredRole } from './lib/utils/auth';
 
 // Each role maps to exactly one home route prefix.
 const ROLE_HOME = {
   waiter: '/waiter',
   kitchen_supervisor: '/kitchen',
   manager: '/manager',
+  owner: '/manager',
 };
 
 // Roles whose components provide their own full-page layout (no outer shell).
-const SELF_CONTAINED_ROLES = ['manager', 'waiter', 'kitchen_supervisor'];
+const SELF_CONTAINED_ROLES = ['manager', 'owner', 'waiter', 'kitchen_supervisor'];
 
 /**
  * ProtectedRoute — guards a route group by login state AND, optionally, by role.
@@ -32,7 +34,7 @@ const ProtectedRoute = ({ requiredRole } = {}) => {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
-  if (requiredRole && role !== requiredRole) {
+  if (requiredRole && !roleSatisfiesRequiredRole(role, requiredRole)) {
     const correctHome = ROLE_HOME[role] || '/login';
     return <Navigate to={correctHome} replace />;
   }

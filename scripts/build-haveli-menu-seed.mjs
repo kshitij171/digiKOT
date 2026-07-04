@@ -321,32 +321,20 @@ function buildRows() {
 
 const rows = buildRows();
 
-const categoryInserts = MENU.map(
-  (c) => `  ('${c.id}', '${sqlEscape(c.name)}', ${c.displayOrder}, '')`
-).join(',\n');
-
 const itemValues = rows
   .map(
     (r) =>
-      `('${r.id}', '${sqlEscape(r.name)}', '${sqlEscape(r.category)}', '${r.categoryId}', ${r.price.toFixed(2)}, '', '${sqlEscape(r.image)}', true, false, now())`
+      `('${r.id}', '${sqlEscape(r.name)}', '${sqlEscape(r.category)}', ${r.price.toFixed(2)}, '', '${sqlEscape(r.image)}', true, false, now())`
   )
   .join(',\n');
 
-const seedMenuBody = `insert into categories (id, name, display_order, icon) values
-${categoryInserts}
-on conflict (id) do update set
-  name = excluded.name,
-  display_order = excluded.display_order,
-  icon = excluded.icon;
-
-insert into menu_items
-  (id, name, category, category_id, price, description, image_url, is_vegetarian, out_of_stock, updated_at)
+const seedMenuBody = `insert into menu_items
+  (id, name, category, price, description, image_url, is_vegetarian, out_of_stock, updated_at)
 values
 ${itemValues}
 on conflict (id) do update set
   name = excluded.name,
   category = excluded.category,
-  category_id = excluded.category_id,
   price = excluded.price,
   description = excluded.description,
   image_url = excluded.image_url,
@@ -362,9 +350,7 @@ const sql = `-- ================================================================
 -- Apply: run in Supabase SQL editor, or psql against local Postgres.
 -- =============================================================================
 
--- Remove legacy menu items and categories not in this menu
 delete from menu_items;
-delete from categories;
 
 ${seedMenuBody}`;
 

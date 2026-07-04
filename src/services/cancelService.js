@@ -2,7 +2,6 @@ import { cancelRepository } from '../repositories/cancelRepository';
 import { realtimeAdapter } from '../realtime/realtimeAdapter';
 import { kotRepository } from '../repositories/kotRepository';
 import { userRepository } from '../repositories/userRepository';
-import { kotActionsRepository } from '../repositories/kotActionsRepository';
 import { notificationService } from './notificationService';
 import { auditService } from './auditService';
 import { createSubscriptionController } from './subscriptionController';
@@ -230,13 +229,6 @@ export const cancelService = {
           });
         }
       }
-
-      // Log to kot_actions for full auditability
-      await kotActionsRepository.logAction({
-        kotId: request.originalKotId,
-        action: approve ? 'cancel_approved' : 'cancel_rejected',
-        performedByWaiterId: reviewerUserId,
-      }).catch(() => {});
 
       let waiterUsername = null;
       if (request.waiterUserId) {

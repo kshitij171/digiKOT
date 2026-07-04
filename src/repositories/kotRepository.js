@@ -192,6 +192,30 @@ export const kotRepository = {
     }
   },
 
+  /**
+   * Lists KOTs created in a date range with their items attached.
+   * Used by manager analytics for waiter item throughput.
+   * @param {object} [args]
+   * @param {string|null} [args.fromDate]
+   * @param {string|null} [args.toDate]
+   * @returns {Promise<Array<object>>}
+   */
+  async listCreatedWithItems({ fromDate, toDate } = {}) {
+    try {
+      let q = supabase.from('kots').select('*, kot_items(*)');
+      if (fromDate) q = q.gte('created_at', fromDate);
+      if (toDate) q = q.lte('created_at', toDate);
+      const { data, error } = await q.order('created_at', { ascending: false }).limit(2000);
+      if (error) throw error;
+      return (data || []).map((kot) => ({
+        ...kot,
+        items: kot.kot_items || [],
+      }));
+    } catch (err) {
+      throw err;
+    }
+  },
+
   // ── Mutations ─────────────────────────────────────────────
   /**
    * Creates a KOT and its kot_items rows.

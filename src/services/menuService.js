@@ -7,21 +7,11 @@ function mapItem(row) {
     id: row.id,
     name: row.name,
     category: row.category,
-    categoryId: row.category_id || null,
     price: Number(row.price),
     description: row.description || '',
     imageUrl: row.image_url || '',
     outOfStock: row.out_of_stock === true,
     isVegetarian: row.is_vegetarian === true,
-  };
-}
-
-function mapCategory(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    displayOrder: row.display_order,
-    icon: row.icon || '',
   };
 }
 
@@ -34,24 +24,6 @@ export const menuService = {
     try {
       const rows = await menuRepository.listMenuItems();
       return rows.map(mapItem);
-    } catch (err) {
-      throw err;
-    }
-  },
-
-  /**
-   * Lists menu categories for UI grouping.
-   * Returns [] when the categories table isn't available yet.
-   * @returns {Promise<Array<object>>}
-   */
-  async listCategories() {
-    try {
-      try {
-        const rows = await menuRepository.listCategories();
-        return rows.map(mapCategory);
-      } catch {
-        return [];
-      }
     } catch (err) {
       throw err;
     }

@@ -1,6 +1,5 @@
 import { kotRepository } from '../repositories/kotRepository';
 import { billingService } from './billingService';
-import { kotActionsRepository } from '../repositories/kotActionsRepository';
 import { tableService } from './tableService';
 import { menuService } from './menuService';
 import { auditService } from './auditService';
@@ -218,12 +217,6 @@ export const kotService = {
         items,
       });
 
-      await kotActionsRepository.logAction({
-        kotId,
-        action: 'created',
-        performedByWaiterId: waiterUserId,
-      }).catch((e) => console.warn('kot_actions log failed:', e));
-
       await auditService.log({
         actor_user_id: waiterUserId,
         action: 'create_kot',
@@ -248,11 +241,6 @@ export const kotService = {
   async cancelKot({ kotId, cancelledBy, cancelReason }) {
     try {
       await kotRepository.cancelKot(kotId, { cancelledBy, cancelReason });
-      await kotActionsRepository.logAction({
-        kotId,
-        action: 'cancelled',
-        performedByWaiterId: cancelledBy,
-      }).catch(() => {});
       await auditService.log({
         actor_user_id: cancelledBy,
         action: 'CANCEL_KOT',
@@ -313,7 +301,8 @@ export const kotService = {
   },
 
   /**
-   * Clears a table: finalizes bill if needed, deletes cleared KOTs, and writes audit.
+   * Clears a table: finalizes bill if needed and closes the table session.
+   * Cleared KOT rows are intentionally preserved for analytics/audit history.
    * @param {number} tableNumber
    * @param {string} actorUserId
    * @param {object} [options]
@@ -336,7 +325,6 @@ export const kotService = {
         });
       }
 
-      await kotRepository.deleteClearedByTable(tableNumber);
       await tableService.clearTable(tableNumber);
       await auditService.log({
         actor_user_id: actorUserId,

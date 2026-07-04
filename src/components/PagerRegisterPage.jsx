@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
 import { managerService } from '../services/managerService';
+import { hasManagerAccess } from '../lib/utils/auth';
 import './ManagerApp.css';
 
 export default function PagerRegisterPage() {
@@ -20,7 +21,7 @@ export default function PagerRegisterPage() {
   const [copyDoneId, setCopyDoneId] = useState(null);
 
   const load = useCallback(async () => {
-    if (!currentUser || currentUser.role !== 'manager') return;
+    if (!currentUser || !hasManagerAccess(currentUser.role)) return;
     setLoading(true);
     setErr('');
     try {
@@ -90,13 +91,13 @@ export default function PagerRegisterPage() {
     }
   };
 
-  if (currentUser.role !== 'manager') {
+  if (!hasManagerAccess(currentUser.role)) {
     return (
       <div className="mgr-shell">
         <div className="mgr-content" style={{ maxWidth: 480 }}>
-          <p className="staff-error-msg">Manager access only.</p>
+          <p className="staff-error-msg">Manager or owner access only.</p>
           <p style={{ color: '#94a3b8', fontSize: '0.9rem' }}>
-            Log in with a manager PIN to register pager devices.
+            Log in with a manager or owner PIN to register pager devices.
           </p>
           <Link to={authService.getRouteForRole(currentUser.role)} style={{ color: '#c9a84c' }}>
             Back to app
@@ -115,7 +116,7 @@ export default function PagerRegisterPage() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
           <Link to="/manager" className="mgr-tab" style={{ textDecoration: 'none', border: '1px solid #334155' }}>
-            Manager home
+            Manager dashboard
           </Link>
           <div className="mgr-topbar-user">@{currentUser?.username || currentUser?.name}</div>
           <button

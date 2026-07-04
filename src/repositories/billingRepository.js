@@ -12,6 +12,21 @@ async function runQuery(query) {
   }
 }
 
+/** Map bills.items jsonb to bill_items shape expected by UI/services. */
+function mapBillRow(row) {
+  if (!row) return row;
+  const items = Array.isArray(row.items) ? row.items : [];
+  return { ...row, bill_items: items };
+}
+
+/** Strip parent-row keys before persisting line snapshots in bills.items. */
+function normalizeBillItems(items) {
+  return (items || []).map((item) => {
+    const { bill_id: _billId, id: _id, ...rest } = item;
+    return rest;
+  });
+}
+
 export const billingRepository = {
   /**
    * Creates a new bill record and returns its id.
@@ -24,6 +39,7 @@ export const billingRepository = {
       await dbAdapter.insert('bills', {
         id: billId,
         ...payload,
+        items: Array.isArray(payload.items) ? payload.items : [],
         created_at: new Date().toISOString(),
       });
       return billId;
@@ -33,14 +49,27 @@ export const billingRepository = {
   },
 
   /**
-   * Bulk inserts bill_items rows for a bill.
+   * Persists line-item snapshots on the bill row (bills.items jsonb).
+   * @param {string} billId
    * @param {Array<object>} items
    * @returns {Promise<void>}
    */
-  async createBillItems(items) {
+  async setBillItems(billId, items) {
     try {
-      if (!items.length) return;
-      await dbAdapter.insert('bill_items', items.map((item) => ({ id: createId(), ...item })));
+      await this.updateBill(billId, { items: normalizeBillItems(items) });
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * @param {string} billId
+   * @param {Array<object>} items
+   * @returns {Promise<void>}
+   */
+  async createBillItems(billId, items) {
+    try {
+      return this.setBillItems(billId, items);
     } catch (err) {
       throw err;
     }
@@ -49,7 +78,7 @@ export const billingRepository = {
   /** Manager Bills tab: one row per Clear Table (cleared_at set). */
   async listClearedBills({ fromDate, toDate, search } = {}) {
     try {
-      let q = supabase.from('bills').select('*, bill_items(*)').not('cleared_at', 'is', null);
+      let q = supabase.from('bills').select('*').not('cleared_at', 'is', null);
       if (fromDate) q = q.gte('cleared_at', fromDate);
       if (toDate) q = q.lte('cleared_at', toDate);
       if (search) {
@@ -58,7 +87,7 @@ export const billingRepository = {
       }
       const { data, error } = await q.order('cleared_at', { ascending: false }).limit(500);
       if (error) throw error;
-      return data || [];
+      return (data || []).map(mapBillRow);
     } catch (err) {
       throw err;
     }
@@ -132,28 +161,14 @@ export const billingRepository = {
   },
 
   /**
-   * Deletes bill_items for a bill.
-   * @param {string} billId
-   * @returns {Promise<any>}
-   */
-  async deleteBillItemsForBill(billId) {
-    try {
-      return dbAdapter.delete('bill_items', [{ column: 'bill_id', value: billId }]);
-    } catch (err) {
-      throw err;
-    }
-  },
-
-  /**
-   * Replaces bill items for a bill.
+   * Replaces bill line snapshots on the bill row.
    * @param {string} billId
    * @param {Array<object>} items
    * @returns {Promise<void>}
    */
   async replaceBillItems(billId, items) {
     try {
-      await this.deleteBillItemsForBill(billId);
-      if (items.length) await this.createBillItems(items);
+      return this.setBillItems(billId, items);
     } catch (err) {
       throw err;
     }
@@ -193,32 +208,14 @@ export const billingRepository = {
   },
 
   /**
-   * Lists bill_items for a bill.
+   * Line-item snapshots for a bill (from bills.items jsonb).
    * @param {string} billId
    * @returns {Promise<Array<object>>}
    */
   async getBillItems(billId) {
     try {
-      return dbAdapter.select('bill_items', {
-        filters: [{ column: 'bill_id', value: billId }],
-      });
-    } catch (err) {
-      throw err;
-    }
-  },
-
-  /**
-   * Excludes a bill_item from bill (manager-approved removal).
-   * @param {string} billItemId
-   * @returns {Promise<any>}
-   */
-  async excludeBillItem(billItemId) {
-    try {
-      return dbAdapter.update(
-        'bill_items',
-        { include_in_bill: false, exclusion_reason: 'manager_approved_removal' },
-        [{ column: 'id', value: billItemId }]
-      );
+      const bill = await this.getBillById(billId);
+      return Array.isArray(bill?.items) ? bill.items : [];
     } catch (err) {
       throw err;
     }
@@ -254,9 +251,7 @@ export const billingRepository = {
       return dbAdapter.update(
         'bills',
         {
-          voided_by: voidedBy || null,
           voided_at: new Date().toISOString(),
-          void_reason: voidReason || null,
         },
         [{ column: 'id', value: billId }]
       );
@@ -304,7 +299,6 @@ export const billingRepository = {
         {
           discount_percent: discountPercent,
           discount_applied_by: appliedBy || null,
-          discount_applied_at: new Date().toISOString(),
           total: newTotal,
         },
         [{ column: 'id', value: billId }]
@@ -355,9 +349,9 @@ export const billingRepository = {
   async listHighDiscountBills({ fromDate, toDate, threshold = 50 } = {}) {
     try {
       let q = supabase.from('bills').select('*').gt('discount_percent', threshold);
-      if (fromDate) q = q.gte('discount_applied_at', fromDate);
-      if (toDate) q = q.lte('discount_applied_at', toDate);
-      return runQuery(q.order('discount_applied_at', { ascending: false }).limit(200));
+      if (fromDate) q = q.gte('created_at', fromDate);
+      if (toDate) q = q.lte('created_at', toDate);
+      return runQuery(q.order('created_at', { ascending: false }).limit(200));
     } catch (err) {
       throw err;
     }

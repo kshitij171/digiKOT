@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/authService';
-import { hashPin } from '../lib/utils/auth';
+import { hasManagerAccess, hashPin } from '../lib/utils/auth';
 import './LoginScreen.css';
 
 const PIN_LENGTH = 4;
@@ -54,7 +54,7 @@ export default function LoginScreen() {
       const pinHash = await hashPin(pinRef.current);
       const user = await loginWithPinHash(pinHash);
       const redirect = sessionStorage.getItem(POST_LOGIN_REDIRECT_KEY);
-      if (redirect === '/pager-register' && user.role === 'manager') {
+      if (redirect === '/pager-register' && hasManagerAccess(user.role)) {
         sessionStorage.removeItem(POST_LOGIN_REDIRECT_KEY);
         navigate('/pager-register');
         return;
@@ -132,7 +132,7 @@ export default function LoginScreen() {
           >
             Pager Add
           </button>
-          <span className="numpad-footer-hint"> — register ESP (manager PIN)</span>
+          <span className="numpad-footer-hint"> — register ESP (manager or owner PIN)</span>
         </div>
       </div>
     </div>

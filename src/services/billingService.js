@@ -9,7 +9,7 @@ import {
   ratesImpliedByBill,
 } from '../lib/billing/billTotals';
 
-function buildBillItemRows(billId, clearedKots) {
+function buildBillItemRows(clearedKots) {
   const rows = [];
   (clearedKots || []).forEach((kot) => {
     const kotKey = kot._docId || kot.id;
@@ -18,7 +18,6 @@ function buildBillItemRows(billId, clearedKots) {
         item.itemName ?? item.name ?? item.item_name ?? item.itemNameSnapshot ?? 'Unknown item';
       const isPartial = item.status === 'partially_removed';
       rows.push({
-        bill_id: billId,
         kot_item_id: `${kotKey}:${item.itemId}`,
         item_name: lineName,
         qty: billQty,
@@ -80,10 +79,8 @@ export const billingService = {
         total: finalTotal,
         discount_percent: pct > 0 ? pct : null,
         discount_applied_by: pct > 0 ? (waiterUserId || null) : null,
-        discount_applied_at: pct > 0 ? new Date().toISOString() : null,
-        printed: false,
       });
-      await billingRepository.createBillItems(buildBillItemRows(billId, clearedKots));
+      await billingRepository.createBillItems(billId, buildBillItemRows(clearedKots));
       await auditService.log({
         actor_user_id: waiterUserId,
         action: 'create_bill',
@@ -147,9 +144,7 @@ export const billingService = {
         total: finalTotal,
         discount_percent: discPct > 0 ? discPct : null,
         discount_applied_by: discPct > 0 ? (waiterUserId || existing?.discount_applied_by || null) : null,
-        discount_applied_at: discPct > 0 ? now : null,
         cleared_at: now,
-        printed: false,
       };
 
       let billId;
@@ -163,7 +158,7 @@ export const billingService = {
         });
       }
 
-      await billingRepository.replaceBillItems(billId, buildBillItemRows(billId, clearedKots));
+      await billingRepository.replaceBillItems(billId, buildBillItemRows(clearedKots));
 
       await auditService.log({
         actor_user_id: waiterUserId,
