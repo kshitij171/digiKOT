@@ -1,8 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { authService } from '../services/authService';
-import { hashPin } from '../lib/utils/auth';
+import { hashPin, isManagerAccessRole } from '../lib/utils/auth';
 import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import './LoginScreen.css';
 
@@ -21,6 +21,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const { loginWithPinHash } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleKey = (key) => {
     if (loading) return;
@@ -54,7 +55,12 @@ export default function LoginScreen() {
       const pinHash = await hashPin(pinRef.current);
       const user = await withTraceId(trace.traceId, () => loginWithPinHash(pinHash));
       endTrace(trace, 'ok');
-      navigate(authService.getRouteForRole(user.role));
+      const home = authService.getRouteForRole(user.role);
+      const fromPath = location.state?.from?.pathname;
+      // Manager-access users may resume /pager-register after login.
+      const resumePagerRegister =
+        isManagerAccessRole(user.role) && fromPath === '/pager-register';
+      navigate(resumePagerRegister ? fromPath : home);
     } catch (err) {
       endTrace(trace, 'error', err);
       setError(err.message || 'Incorrect PIN.');

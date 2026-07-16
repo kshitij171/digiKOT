@@ -59,7 +59,8 @@ export async function authRoutes(fastify) {
     );
 
     const { pin_hash: _p, ...safeUser } = mapUserRow(user);
-    return { user: safeUser };
+    // Return token in body so LAN clients work even if Set-Cookie is dropped by a proxy.
+    return { user: safeUser, token };
   });
 
   fastify.post('/auth/logout', async (request, reply) => {

@@ -74,7 +74,13 @@ export const complexQueries = {
     const db = getDb();
     const row = db
       .prepare(
-        `SELECT * FROM bills WHERE table_number = ? AND cleared_at IS NULL ORDER BY created_at DESC LIMIT 1`
+        `SELECT * FROM bills
+         WHERE table_number = ?
+           AND cleared_at IS NULL
+           AND voided_at IS NULL
+           AND (bill_status IS NULL OR bill_status NOT IN ('void'))
+         ORDER BY created_at DESC
+         LIMIT 1`
       )
       .get(tableNumber);
     return row ? mapBill(row) : null;

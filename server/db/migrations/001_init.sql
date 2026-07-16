@@ -4,7 +4,7 @@ PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  role TEXT NOT NULL CHECK (role IN ('waiter', 'kitchen_supervisor', 'manager')),
+  role TEXT NOT NULL CHECK (role IN ('waiter', 'kitchen_supervisor', 'manager', 'owner')),
   code TEXT NOT NULL UNIQUE,
   username TEXT,
   name TEXT NOT NULL,

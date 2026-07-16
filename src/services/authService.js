@@ -2,48 +2,39 @@ import { userRepository } from '../repositories/userRepository';
 import { apiClient } from '../lib/api/apiClient';
 import { getRouteForRole, normalizePhone } from '../lib/utils/auth';
 
-// Fallback demo users — only used if the database is unreachable.
-// Each user has a unique PIN so the PIN-based lookup works correctly.
-// PIN 1234 → waiter1, PIN 5678 → waiter2, PIN 9999 → ksup1, PIN 4321 → mgr1
-const DEMO_USERS = [
-  { id: 'u_waiter_1',            username: 'waiter1', name: 'Waiter One',             role: 'waiter',             phone: '9876543201', pin_hash: '03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4', active: true },
-  { id: 'u_waiter_2',            username: 'waiter2', name: 'Waiter Two',             role: 'waiter',             phone: '9876543205', pin_hash: 'f8638b979b2f4f793ddb6dbd197e0ee25a7a6ea32b0ae22f5e3c5d119d839e75', active: true },
-  { id: 'u_kitchen_supervisor_1',username: 'ksup1',   name: 'Kitchen Supervisor One', role: 'kitchen_supervisor', phone: '9876543203', pin_hash: '888df25ae35772424a560c7152a1de794440e0ea5cfee62828333a456a506e05', active: true },
-  { id: 'u_manager_1',           username: 'mgr1',    name: 'Manager One',            role: 'manager',            phone: '9876543204', pin_hash: 'fe2592b42a727e977f055947385b709cc82b16b9a87f88c6abf3900d65d0cdc3', active: true },
-];
-
 export const authService = {
   /**
-   * Looks up a user by PIN hash.
+   * Looks up a user by PIN hash via the API (sets the session cookie).
    * Returns the user object on success; throws with a generic message on failure.
    * @param {string} pinHash - Hashed PIN from the component boundary.
    * @returns {Promise<object>} User row.
    */
   async loginWithPinHash(pinHash) {
+    if (!pinHash) throw new Error('PIN must be exactly 4 digits.');
+
+    let user = null;
     try {
-      let user = null;
-      try {
-        const res = await apiClient.login(pinHash);
-        user = res?.user || null;
-      } catch (error) {
-        console.warn('API login failed, trying DB lookup.', error);
-        try {
-          user = await userRepository.findByPinHash(pinHash);
-        } catch (dbErr) {
-          console.warn('DB lookup failed, using demo users.', dbErr);
-          user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
-        }
+      const res = await apiClient.login(pinHash);
+      user = res?.user || null;
+    } catch (error) {
+      const message = String(error?.message || '');
+      if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+        throw new Error(
+          'Cannot reach the server. On this PC run npm run dev:all, then open http://<this-pc-lan-ip>:5173 on the other device (same Wi‑Fi).'
+        );
       }
-
-      if (!user) {
-        user = DEMO_USERS.find((u) => u.pin_hash === pinHash && u.active) || null;
+      if (message.includes('Invalid PIN') || message.includes('401')) {
+        throw new Error('Incorrect PIN.');
       }
-
-      if (!user || !user.active) throw new Error('Incorrect PIN.');
-      return user;
-    } catch (err) {
-      throw err;
+      if (message.includes('pinHash required')) {
+        throw new Error('Login failed. Refresh the page and try again.');
+      }
+      throw new Error(message || 'Incorrect PIN.');
     }
+
+    if (!user) throw new Error('Incorrect PIN.');
+    if (user.active === false || user.active === 0) throw new Error('Incorrect PIN.');
+    return user;
   },
 
   getRouteForRole,
@@ -63,31 +54,14 @@ export const authService = {
 
       const normalizedUsername = String(username).trim().toLowerCase();
 
-      let user = null;
-      try {
-        user = await userRepository.findByUsername(normalizedUsername);
-      } catch (error) {
-        console.warn('DB lookup failed for PIN reset.', error);
-      }
-
-      if (!user) {
-        user = DEMO_USERS.find((u) => u.username === normalizedUsername) || null;
-      }
+      const user = await userRepository.findByUsername(normalizedUsername);
       if (!user) throw new Error('No staff member found with that username.');
 
-      let conflict = null;
-      try {
-        conflict = await userRepository.findActivePinHash(newPinHash);
-      } catch (_) { /* ignore */ }
-
+      const conflict = await userRepository.findActivePinHash(newPinHash).catch(() => null);
       if (conflict && conflict.id !== user.id) {
         throw new Error('This PIN is already in use. Choose a different one.');
       }
 
-      if (DEMO_USERS.some((u) => u.id === user.id)) {
-        user.pin_hash = newPinHash;
-        return;
-      }
       const { rowsAffected } = await userRepository.updatePinByUserId(user.id, newPinHash);
       if (rowsAffected === 0) {
         throw new Error(

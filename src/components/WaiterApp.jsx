@@ -719,7 +719,7 @@ function OrderPage() {
           if (!prev) return prev;
           billingService.getBillById(prev).then((b) => {
             if (cancelled) return;
-            if (!b || b.bill_status === 'void') setLastBillId(null);
+            if (!b || b.voided_at || b.bill_status === 'void') setLastBillId(null);
           });
           return prev;
         });
@@ -781,8 +781,9 @@ function OrderPage() {
   const [waCustomerPhone, setWaCustomerPhone] = useState('');
   const [waMessage, setWaMessage] = useState('');
 
-  // ── Cancel rejection/approval toast tracker ───────────────
+  // ── Cancel / removal approval toast trackers ──────────────
   const prevCancelReqsRef = useRef([]);
+  const prevBillModReqsRef = useRef([]);
 
   useEffect(() => {
     try {
@@ -804,6 +805,22 @@ function OrderPage() {
     });
     prevCancelReqsRef.current = cancellationRequests;
   }, [cancellationRequests]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Toast notifications for manager removal approve / reject ─
+  useEffect(() => {
+    const prev = prevBillModReqsRef.current;
+    billModRequests.forEach((r) => {
+      const wasPending = prev.some((p) => p.id === r.id && p.status === 'pending');
+      if (wasPending && r.status === 'rejected') {
+        showToast('Manager rejected your removal request. Items stay on the bill.');
+      }
+      if (wasPending && r.status === 'approved') {
+        showToast('Manager approved your removal request. Bill has been updated.');
+        setLastBillId(null);
+      }
+    });
+    prevBillModReqsRef.current = billModRequests;
+  }, [billModRequests]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Cart actions ──────────────────────────────────────────
   const addToCart = item => {
@@ -965,6 +982,7 @@ function OrderPage() {
       }
       endTrace(trace, 'ok');
       showToast('Order sent to kitchen!', 'success');
+      setSpecialInstructions('');
       setCartItems(prev => {
         const remaining = prev.filter(i => !i.isChecked);
         try { localStorage.setItem(CART_KEY, JSON.stringify(remaining.map(({ isChecked, ...r }) => r))); } catch { /* ignore */ }
@@ -973,7 +991,7 @@ function OrderPage() {
     } catch (err) {
       console.error('KOT error:', err);
       endTrace(trace, 'error', err);
-      alert(import.meta.env.VITE_DEV_DIAGNOSTICS === '1' ? err.message : 'Failed to submit KOT. Please try again.');
+      alert(err?.message || 'Failed to submit KOT. Please try again.');
     } finally {
       setKotSubmitting(false);
     }
@@ -982,34 +1000,30 @@ function OrderPage() {
   // ── Print bill ────────────────────────────────────────────
   const RESOLVED_STATUSES = ['done', 'removed', 'out_of_stock', 'cancelled'];
 
-  /** Returns null on success, or an error string if blocked. */
+  const isBillVoid = (bill) => !bill || Boolean(bill.voided_at) || bill.bill_status === 'void';
+
+  /**
+   * Ensures a non-void draft bill exists for this table.
+   * @returns {Promise<{ error: string|null, billId: string|null }>}
+   */
   const ensureBillExists = async () => {
-    if (lastBillId) {
-      // The bill may have been voided by a manager approval — re-check before reusing.
-      try {
-        const existing = await billingService.getBillById(lastBillId);
-        if (!existing || existing.voided_at) {
-          setLastBillId(null);
-          // Fall through to create a fresh bill
-        } else {
-          return null; // Bill is still valid, reuse it
-        }
-      } catch {
-        setLastBillId(null);
-      }
-    }
+    const tableNumber = parseInt(id, 10);
 
     const pendingKot = openKots.find(kot =>
       kot.items?.some(item => !RESOLVED_STATUSES.includes(item.status))
     );
     if (pendingKot) {
       const shortKotId = (pendingKot.id || '').slice(-4).toUpperCase();
-      return `KOT #${shortKotId} is still being prepared. Wait for the kitchen to mark all items as done.`;
+      return {
+        error: `KOT #${shortKotId} is still being prepared. Wait for the kitchen to mark all items as done.`,
+        billId: null,
+      };
     }
 
     try {
+      // createBillForTable reuses the latest non-void draft when present.
       const billId = await billingService.createBillForTable({
-        tableNumber: parseInt(id),
+        tableNumber,
         waiterUserId: currentUser?.id || null,
         waiterUsername: currentUser?.username || null,
         clearedKots,
@@ -1018,18 +1032,25 @@ function OrderPage() {
         discountPercent: discountPct,
       });
       setLastBillId(billId);
-      return null;
+      return { error: null, billId };
     } catch (err) {
       console.error('Bill error:', err);
-      return 'Failed to generate bill. Please try again.';
+      return { error: err?.message || 'Failed to generate bill. Please try again.', billId: null };
     }
   };
 
   const handlePrintPhysical = async () => {
     if (!hasConsumed) return;
-    const err = await ensureBillExists();
-    if (err) { alert(err); return; }
+    const { error, billId } = await ensureBillExists();
+    if (error) { alert(error); return; }
     window.print();
+    if (billId) {
+      try {
+        await billingService.markPrinted(billId);
+      } catch (e) {
+        console.warn('Could not mark bill printed:', e?.message || e);
+      }
+    }
   };
 
   const handleSendBillOnWhatsApp = async () => {
@@ -1040,9 +1061,9 @@ function OrderPage() {
     }
 
     setWaMessage('');
-    const err = await ensureBillExists();
-    if (err) {
-      alert(err);
+    const { error } = await ensureBillExists();
+    if (error) {
+      alert(error);
       return;
     }
 
@@ -1081,7 +1102,8 @@ function OrderPage() {
    * individual unit rows (qty × 1) so the waiter can remove partial quantities.
    */
   const buildRemovalSelections = () => {
-    const consumedItems = combinedConsumedItems.filter((item) => item.status === 'done');
+    // Show all billable consumed lines (done + partially_removed with qty > 0).
+    const consumedItems = combinedConsumedItems.filter((item) => (Number(item.qty) || 0) > 0);
     return consumedItems.flatMap((item, rowIndex) =>
       Array.from({ length: item.qty }, (_, u) => ({
         ...item,
@@ -1096,8 +1118,8 @@ function OrderPage() {
 
   const openRemovalModal = async () => {
     if (!hasConsumed) return;
-    const err = await ensureBillExists();
-    if (err) { alert(err); return; }
+    const { error } = await ensureBillExists();
+    if (error) { alert(error); return; }
     setRemovalSelections(buildRemovalSelections());
     setRemovalReason('');
     setRemovalMessage('');
@@ -1124,11 +1146,17 @@ function OrderPage() {
     const itemsToRemove = Object.values(byLine);
 
     setRemovalSubmitting(true);
-    const trace = startTrace('bill_mod_request', { tableNumber: id ? parseInt(id, 10) : null, billId: lastBillId });
+    const { error: billError, billId } = await ensureBillExists();
+    if (billError || !billId) {
+      setRemovalSubmitting(false);
+      setRemovalMessage(billError || 'Failed to generate bill. Please try again.');
+      return;
+    }
+    const trace = startTrace('bill_mod_request', { tableNumber: id ? parseInt(id, 10) : null, billId });
     try {
       await withTraceId(trace.traceId, () =>
         billModificationService.requestItemRemoval({
-          billId: lastBillId,
+          billId,
           waiterId: currentUser?.id || null,
           waiterUsername: currentUser?.username || null,
           tableNumber: id ? parseInt(id, 10) : null,
@@ -1168,6 +1196,10 @@ function OrderPage() {
 
   // ── Clear table ───────────────────────────────────────────
   const handleClearTable = async () => {
+    if (pendingBillRemovalRequest) {
+      alert('You cannot clear this table while a removal request is pending manager approval.');
+      return;
+    }
     // Block if active KOTs exist.
     if (openKots.length > 0) {
       alert('Table cannot be cleared. There is an active KOT or unpaid bill. Please wait for the kitchen to complete all orders.');
@@ -1191,7 +1223,9 @@ function OrderPage() {
     } catch (err) {
       console.error('Clear table error:', err);
       endTrace(trace, 'error', err);
-      alert(import.meta.env.VITE_DEV_DIAGNOSTICS === '1' ? err.message : 'Something went wrong.');
+      alert(err?.message && err.message !== 'Forbidden'
+        ? err.message
+        : 'Could not clear the table. Please try again.');
       return;
     }
     navigate('/waiter');
@@ -1308,7 +1342,11 @@ function OrderPage() {
               <button
                 type="button"
                 className="topbar-btn topbar-btn--danger clear-table-btn action-btn"
-                disabled={clearedKots.length === 0}
+                disabled={
+                  clearedKots.length === 0 ||
+                  openKots.length > 0 ||
+                  pendingBillRemovalRequest
+                }
                 onClick={handleClearTable}
                 aria-label="Clear table"
               >
@@ -1651,15 +1689,18 @@ function OrderPage() {
       {/* ══ Summary Modal ══ */}
       {showSummary && (
         <div className="summary-overlay" onClick={() => setShowSummary(false)}>
-          <div className="summary-modal" onClick={e => e.stopPropagation()}>
+          <div className="summary-modal summary-modal--billing" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
-              <h3>Consumed — Table {id}</h3>
+              <h3>Order Summary — Table {id}</h3>
               <button type="button" className="summary-close" onClick={() => setShowSummary(false)} aria-label="Close summary">✕</button>
             </div>
-            <div className="summary-modal-body">
+            <div className="summary-modal-body summary-modal-body--billing">
 
               <div className="summary-section">
-                <h4 className="summary-section-title">Pending at Kitchen</h4>
+                <h4 className="summary-section-title">
+                  Pending at Kitchen
+                  {openKots.length > 0 && <span className="summary-section-count">{openKots.length}</span>}
+                </h4>
                 {openKots.length === 0 ? (
                   <div className="summary-empty">No pending items</div>
                 ) : (
@@ -1668,26 +1709,36 @@ function OrderPage() {
                       <div key={kot?._docId || kot?.id || `open-kot-${idx}`} className="log-kot-card">
                         <div className="log-kot-label">KOT #{(kot._docId || '').slice(-4).toUpperCase()}</div>
                         {kot.items?.map((item, i) => {
-                          const isResolved  = ['done', 'removed', 'out_of_stock'].includes(item.status);
+                          const isResolved  = ['done', 'removed', 'out_of_stock', 'cancelled'].includes(item.status);
                           const isPending   = item.status === 'pending';
                           const hasCancelReq = cancellationRequests.some(r =>
                             r.originalKotId === kot._docId && r.itemId === item.itemId && r.status === 'pending_approval'
                           );
+                          const statusLabel = hasCancelReq
+                            ? 'Cancellation Requested'
+                            : ({
+                                pending: 'Pending',
+                                done: 'Done',
+                                removed: 'Removed',
+                                out_of_stock: 'Out of stock',
+                                cancelled: 'Cancelled',
+                              }[item.status] || item.status || 'Pending');
                           const itemKey =
                             (kot?._docId && item?.itemId != null) ? `${kot._docId}:${item.itemId}` : `${kot?._docId || kot?.id || 'kot'}:${i}`;
                           return (
                             <div key={itemKey} className={`log-item-row ${isResolved ? 'resolved-row' : ''}`}>
                               <div className="log-item-info">
-                                <span>{item.name} <span className="log-qty">×{item.qty}</span></span>
+                                <span>
+                                  {item.name} <span className="log-qty">×{item.qty}</span>
+                                  <span className={`log-status-badge log-status-badge--${item.status || 'pending'}`}>
+                                    {statusLabel}
+                                  </span>
+                                </span>
                                 <span className="log-price">₹{item.price * item.qty}</span>
                               </div>
-                              {isPending && (
+                              {isPending && !hasCancelReq && (
                                 <div className="log-item-actions">
-                                  {hasCancelReq ? (
-                                    <span className="cancel-badge">Cancellation Requested</span>
-                                  ) : (
-                                    <button className="btn-cancel-item" onClick={() => handleCancelItem(kot, item)}>Cancel</button>
-                                  )}
+                                  <button className="btn-cancel-item" onClick={() => handleCancelItem(kot, item)}>Cancel</button>
                                 </div>
                               )}
                             </div>
@@ -1702,7 +1753,7 @@ function OrderPage() {
                 )}
               </div>
 
-              <div className="summary-section">
+              <div className="summary-section summary-section--consumed">
                 <h4 className="summary-section-title">Consumed</h4>
                 {clearedKots.length === 0 ? (
                   <div className="summary-empty">No items consumed yet</div>
@@ -1850,37 +1901,43 @@ function OrderPage() {
       {/* ══ Item Removal Request Modal ══ */}
       {showRemovalModal && (
         <div className="summary-overlay" onClick={() => setShowRemovalModal(false)}>
-          <div className="summary-modal" onClick={e => e.stopPropagation()}>
+          <div className="summary-modal summary-modal--removal" onClick={e => e.stopPropagation()}>
             <div className="summary-modal-header">
               <h3>Request Item Removal from Bill</h3>
               <button type="button" className="summary-close" onClick={() => setShowRemovalModal(false)} aria-label="Close removal request">✕</button>
             </div>
-            <div className="summary-modal-body">
+            <div className="summary-modal-body summary-modal-body--removal">
               <p style={{ color: 'var(--text-muted)', fontSize: '0.82rem', margin: '0 0 0.75rem' }}>
                 Select items to remove. Bill is <strong>not</strong> changed until the manager approves.
               </p>
-              {removalSelections.map((item, index) => (
-                <label
-                  key={`${item.kotId}_${item.itemId}_${index}`}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.selected}
-                    onChange={() => toggleRemovalItem(item._key)}
-                    style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
-                  />
-                  <span style={{ flex: 1, fontSize: '0.85rem' }}>
-                    {item.name} ×1
-                    {item.kotId && (
-                      <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
-                        (KOT #{(String(item.kotId)).slice(-4).toUpperCase()})
+              {removalSelections.length === 0 ? (
+                <div className="summary-empty">No billable consumed items available for removal.</div>
+              ) : (
+                <div className="removal-items-list">
+                  {removalSelections.map((item, index) => (
+                    <label
+                      key={`${item.kotId}_${item.itemId}_${index}`}
+                      style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0', cursor: 'pointer', borderBottom: '1px solid var(--border)' }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={item.selected}
+                        onChange={() => toggleRemovalItem(item._key)}
+                        style={{ width: 18, height: 18, accentColor: 'var(--gold)', flexShrink: 0 }}
+                      />
+                      <span style={{ flex: 1, fontSize: '0.85rem' }}>
+                        {item.name} ×1
+                        {item.kotId && (
+                          <span style={{ color: 'var(--text-muted)', marginLeft: '0.35rem' }}>
+                            (KOT #{(String(item.kotId)).slice(-4).toUpperCase()})
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                  <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
-                </label>
-              ))}
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.82rem' }}>₹{item.price}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
               <div style={{ marginTop: '1rem' }}>
                 <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '0.3rem' }}>
                   Reason for removal *
@@ -1899,17 +1956,19 @@ function OrderPage() {
                 </div>
               )}
             </div>
-            <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', gap: '0.5rem', justifyContent: 'flex-end', background: 'var(--bg-off)' }}>
+            <div className="removal-modal-footer">
               <button
+                type="button"
                 onClick={() => setShowRemovalModal(false)}
-                style={{ padding: '0.45rem 1rem', background: 'transparent', border: '1px solid var(--border)', color: 'var(--text-secondary)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit' }}
+                className="removal-modal-btn removal-modal-btn--secondary"
               >
                 Cancel
               </button>
               <button
+                type="button"
                 onClick={submitRemovalRequest}
                 disabled={removalSubmitting}
-                style={{ padding: '0.45rem 1.25rem', background: 'var(--gold)', color: 'var(--brand-dark)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontFamily: 'inherit', fontWeight: 700 }}
+                className="removal-modal-btn removal-modal-btn--primary"
               >
                 {removalSubmitting ? 'Sending…' : 'Send to Manager'}
               </button>

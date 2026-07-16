@@ -2,17 +2,6 @@
 
 Restaurant KOT system — **Node.js + SQLite + Fastify + Vite + Socket.IO + embedded MQTT**. No Supabase or Docker required for local dev.
 
----
-
-## For your teammate (start here)
-
-After you `git pull` this branch, open the repo in **Cursor** and paste this prompt:
-
-> Read `README.md` in the repo root and follow the **Cursor Agent setup** section exactly. Install dependencies, create `.env.local`, migrate and seed the database, verify the app starts, and tell me the URLs and test PINs when done.
-
-Cursor should run every command in that section and fix common issues (port conflicts, missing `.env.local`, etc.) without skipping steps.
-
----
 
 ## Cursor Agent setup
 
@@ -22,7 +11,7 @@ Cursor should run every command in that section and fix common issues (port conf
 
 | Requirement | Notes |
 |-------------|--------|
-| **Node.js 20 or 22** | `node -v` must be `v20.x` or `v22.x` (see `package.json` `engines`) |
+| **Node.js 20–26** | `node -v` must be `v20.x`–`v26.x` (see `package.json` `engines`) |
 | **npm** | Comes with Node |
 | **macOS / Linux / Windows** | `better-sqlite3` compiles native code on `npm install` |
 | **Ports free** | `3000` (API), `5173` (Vite dev UI), `1883` (MQTT) |
@@ -109,6 +98,8 @@ npm run dev:all
 
 Vite proxies `/api` and `/socket.io` to port 3000.
 
+**Other devices on the same Wi‑Fi:** on the PC run `npm run dev:all`, then on phones/tablets open `http://<pc-wifi-ip>:5173` (use the `192.168.x.x` address printed in the terminal — not `localhost`, and not a `172.x` Hyper-V/WSL address). Login uses a bearer token stored on the device so it works over plain HTTP on the LAN.
+
 ### Step 5 — Verify setup
 
 Run in a second terminal:
@@ -118,6 +109,14 @@ npm run smoke
 ```
 
 Expected: health JSON with `"ok": true`.
+
+Run the full POS checklist suite (API + unit + static contracts; requires `dev:all`):
+
+```bash
+npm test
+```
+
+Expected: all cases `PASS`.
 
 Optional:
 
@@ -137,6 +136,7 @@ Open **http://localhost:5173/login**
 | Waiter 2 | `5678` | `/waiter` |
 | Kitchen supervisor | `9999` | `/kitchen` |
 | Manager | `4321` | `/manager` |
+| Owner | `1357` | `/manager` |
 
 **Kitchen + waiter at the same time:** use **two browser tabs** (or incognito for the second role). One session cookie = one role; `/kitchen` redirects waiters back to `/waiter`.
 

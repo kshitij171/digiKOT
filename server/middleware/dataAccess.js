@@ -4,11 +4,11 @@
  */
 
 const ROLES = {
-  ALL: ['waiter', 'kitchen_supervisor', 'manager'],
-  STAFF: ['waiter', 'kitchen_supervisor', 'manager'],
-  WAITER_MANAGER: ['waiter', 'manager'],
-  MANAGER: ['manager'],
-  KITCHEN_MANAGER: ['kitchen_supervisor', 'manager'],
+  ALL: ['waiter', 'kitchen_supervisor', 'manager', 'owner'],
+  STAFF: ['waiter', 'kitchen_supervisor', 'manager', 'owner'],
+  WAITER_MANAGER: ['waiter', 'manager', 'owner'],
+  MANAGER: ['manager', 'owner'],
+  KITCHEN_MANAGER: ['kitchen_supervisor', 'manager', 'owner'],
 };
 
 /** Tables only managers may read via generic select. */
@@ -97,6 +97,18 @@ export function assertInsertAccess(request, reply, table) {
 export function assertUpdateAccess(request, reply, table, payload) {
   const { user } = request;
   if (!user) return deny(reply, 401, 'Unauthorized');
+
+  // Menu catalog edits are manager-only, but kitchen may toggle availability (OOS).
+  if (table === 'menu_items') {
+    if (hasRole(user, ROLES.MANAGER)) return true;
+    if (hasRole(user, ROLES.KITCHEN_MANAGER)) {
+      const keys = Object.keys(payload || {});
+      const onlyAvailability = keys.length > 0 && keys.every((k) => k === 'out_of_stock' || k === 'updated_at');
+      if (onlyAvailability) return true;
+    }
+    return deny(reply, 403, 'Forbidden');
+  }
+
   if (MANAGER_WRITE_TABLES.has(table) && !hasRole(user, ROLES.MANAGER)) {
     return deny(reply, 403, 'Forbidden');
   }
@@ -118,8 +130,13 @@ export function assertDeleteAccess(request, reply, table) {
   if (MANAGER_WRITE_TABLES.has(table) && !hasRole(user, ROLES.MANAGER)) {
     return deny(reply, 403, 'Forbidden');
   }
-  // Bills are manager-only; waiters delete cleared kots/kot_items during clear-table.
-  if (['bills', 'bill_items'].includes(table) && !hasRole(user, ROLES.MANAGER)) {
+  // Deleting bill rows is manager-only. Waiters may delete bill_items when
+  // finalizing a bill on clear-table (replace line items), and may delete
+  // cleared kots/kot_items afterward.
+  if (table === 'bills' && !hasRole(user, ROLES.MANAGER)) {
+    return deny(reply, 403, 'Forbidden');
+  }
+  if (table === 'bill_items' && !hasRole(user, ROLES.WAITER_MANAGER)) {
     return deny(reply, 403, 'Forbidden');
   }
   return true;

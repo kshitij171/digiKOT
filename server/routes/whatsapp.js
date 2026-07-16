@@ -2,7 +2,7 @@ import { authPreHandler, requireRoles } from '../middleware/auth.js';
 import { sendBillWhatsAppFromPayload } from '../sendBillWhatsAppHandler.js';
 
 /** Waiter sends bills; manager may also send. */
-const billSendRoles = requireRoles('waiter', 'manager');
+const billSendRoles = requireRoles('waiter', 'manager', 'owner');
 
 export async function whatsappRoutes(fastify) {
   fastify.post(

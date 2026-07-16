@@ -25,18 +25,35 @@ export function getCookieName() {
 }
 
 export function sessionCookieOptions(nodeEnv, ttlHours) {
+  // Restaurant / LAN deploys use http://<lan-ip>:3000 — Secure cookies are rejected on HTTP.
+  // Only set Secure when explicitly enabled (HTTPS terminators).
+  const secure =
+    process.env.COOKIE_SECURE === '1' ||
+    process.env.COOKIE_SECURE === 'true';
   return {
     httpOnly: true,
+    // Lax works for same-site LAN (page and /api on same host:port).
     sameSite: 'lax',
-    secure: nodeEnv === 'production',
+    secure,
     path: '/',
     maxAge: ttlHours * 3600,
   };
 }
 
+/** Cookie session, or Authorization: Bearer <jwt> (LAN / proxy-friendly). */
+export function readSessionToken(request) {
+  const fromCookie = request.cookies?.[COOKIE_NAME];
+  if (fromCookie) return fromCookie;
+  const header = request.headers?.authorization || request.headers?.Authorization;
+  if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) {
+    return header.slice(7).trim();
+  }
+  return null;
+}
+
 export async function authPreHandler(request, reply) {
   const secret = request.server.config.sessionSecret;
-  const token = request.cookies?.[COOKIE_NAME];
+  const token = readSessionToken(request);
   if (!token) {
     return reply.code(401).send({ error: 'Unauthorized' });
   }

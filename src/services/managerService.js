@@ -1,14 +1,39 @@
 import { postPrepAdjustmentRepository } from '../repositories/postPrepAdjustmentRepository';
 import { pagerRepository } from '../repositories/pagerRepository';
 import { userRepository } from '../repositories/userRepository';
+import { billingRepository } from '../repositories/billingRepository';
 import { isValidDeviceCode, labelForDeviceCode } from '../lib/pagerPool';
 import { auditService } from './auditService';
-import { normalizePhone, VALID_ROLES } from '../lib/utils/auth';
+import {
+  canCreateStaffRole,
+  isManagerAccessRole,
+  normalizePhone,
+  STAFF_ROLES,
+} from '../lib/utils/auth';
 import { createId } from '../lib/utils/id';
 
+function normalizeUsername(username) {
+  return String(username || '').trim().toLowerCase();
+}
+
+function waiterActivityKey(row) {
+  if (row?.waiter_user_id) return `id:${row.waiter_user_id}`;
+  const username = normalizeUsername(row?.waiter_username);
+  if (username) return `username:${username}`;
+  return null;
+}
+
+function waiterDisplayName(waiter, row) {
+  return waiter?.name || waiter?.username || row?.waiter_username || 'Unknown Waiter';
+}
+
+function itemSnapshotName(item) {
+  return String(item?.item_name || item?.item_name_snapshot || item?.name || 'Unknown Item').trim() || 'Unknown Item';
+}
+
 function assertManager(currentUser) {
-  if (!currentUser || currentUser.role !== 'manager') {
-    throw new Error('Only manager can perform this action.');
+  if (!currentUser || !isManagerAccessRole(currentUser.role)) {
+    throw new Error('Only manager or owner can perform this action.');
   }
 }
 
@@ -69,6 +94,107 @@ async function generateUniqueCode(role) {
 }
 
 export const managerService = {
+  /**
+   * Waiter performance from cleared bills (stable after table clear).
+   */
+  async getWaiterPerformance({ managerUser, fromDate, toDate }) {
+    try {
+      assertManager(managerUser);
+      const [staff, clearedBills] = await Promise.all([
+        userRepository.listUsers(),
+        billingRepository.listClearedBills({ fromDate, toDate }),
+      ]);
+
+      const waiters = staff
+        .filter((user) => user.role === 'waiter')
+        .map((user) => ({
+          id: user.id,
+          name: user.name,
+          username: user.username || null,
+          active: user.active,
+        }));
+      const waitersById = new Map(waiters.map((waiter) => [waiter.id, waiter]));
+      const waitersByUsername = new Map(
+        waiters
+          .filter((waiter) => waiter.username)
+          .map((waiter) => [normalizeUsername(waiter.username), waiter]),
+      );
+      const rowsByKey = new Map();
+
+      const ensureRow = (source) => {
+        const waiter =
+          (source.waiter_user_id && waitersById.get(source.waiter_user_id)) ||
+          waitersByUsername.get(normalizeUsername(source.waiter_username)) ||
+          null;
+        const key = waiter?.id ? `id:${waiter.id}` : waiterActivityKey(source);
+        if (!key) return null;
+        if (!rowsByKey.has(key)) {
+          rowsByKey.set(key, {
+            waiterId: waiter?.id || source.waiter_user_id || null,
+            waiterUsername: waiter?.username || source.waiter_username || null,
+            waiterName: waiterDisplayName(waiter, source),
+            tablesServed: 0,
+            itemsProcessed: 0,
+          });
+        }
+        return rowsByKey.get(key);
+      };
+
+      clearedBills.forEach((bill) => {
+        const row = ensureRow(bill);
+        if (!row) return;
+        row.tablesServed += 1;
+        (bill.bill_items || []).forEach((item) => {
+          if (item.include_in_bill === false) return;
+          const qty = Number(item.qty);
+          row.itemsProcessed += Number.isFinite(qty) ? qty : 0;
+        });
+      });
+
+      const rows = Array.from(rowsByKey.values()).filter(
+        (row) => row.tablesServed > 0 || row.itemsProcessed > 0,
+      );
+
+      return { waiters, rows };
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Bestsellers from cleared bills (stable after table clear).
+   */
+  async getBestsellers({ managerUser, fromDate, toDate }) {
+    try {
+      assertManager(managerUser);
+      const clearedBills = await billingRepository.listClearedBills({ fromDate, toDate });
+      const rowsByItemName = new Map();
+
+      clearedBills.forEach((bill) => {
+        (bill.bill_items || []).forEach((item) => {
+          if (item.include_in_bill === false) return;
+          const qty = Number(item.qty);
+          if (!Number.isFinite(qty) || qty <= 0) return;
+          const itemName = itemSnapshotName(item);
+          if (!rowsByItemName.has(itemName)) {
+            rowsByItemName.set(itemName, {
+              itemName,
+              totalQuantity: 0,
+              avgPrepMinutes: null,
+            });
+          }
+          rowsByItemName.get(itemName).totalQuantity += qty;
+        });
+      });
+
+      return Array.from(rowsByItemName.values())
+        .filter((row) => row.totalQuantity > 0)
+        .sort((a, b) => b.totalQuantity - a.totalQuantity);
+    } catch (err) {
+      throw err;
+    }
+  },
+
   async createPostPrepAdjustment({
     managerUserId,
     waiterUserId,
@@ -116,7 +242,14 @@ export const managerService = {
         .toLowerCase()
         .trim()
         .replace(/\s+/g, '_');
-      if (!VALID_ROLES.includes(normalizedRole)) throw new Error('Invalid role selected.');
+      if (!STAFF_ROLES.includes(normalizedRole)) throw new Error('Invalid role selected.');
+      if (!canCreateStaffRole(managerUser.role, normalizedRole)) {
+        throw new Error(
+          normalizedRole === 'manager'
+            ? 'Only an owner can create manager accounts.'
+            : 'You cannot create staff with that role.'
+        );
+      }
 
       const cleanedName = String(name || '').trim();
       if (!cleanedName) throw new Error('Name is required.');
@@ -293,6 +426,12 @@ export const managerService = {
     try {
       assertManager(managerUser);
       if (!userId) throw new Error('User ID is required.');
+      if (userId === managerUser.id) throw new Error('You cannot remove your own account.');
+      const target = await userRepository.findById(userId).catch(() => null);
+      if (target?.role === 'owner') throw new Error('Owner accounts cannot be removed.');
+      if (target?.role === 'manager' && managerUser.role !== 'owner') {
+        throw new Error('Only an owner can remove manager accounts.');
+      }
       await userRepository.softDelete(userId);
       await auditService.log({
         actor_user_id: managerUser.id,

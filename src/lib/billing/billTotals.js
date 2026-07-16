@@ -104,3 +104,47 @@ export function applyDiscountPercent(grandTotalBeforeDiscount, discountPct) {
   const finalTotal = Math.round((g - discountAmt) * 100) / 100;
   return { discountAmt, finalTotal };
 }
+
+/**
+ * Manager Bills filter: % of original subtotal removed via manager-approved removals.
+ * Returns 100 when original subtotal is 0 but removals exist.
+ */
+export function computeRemovalDiscountPct(bill) {
+  const items = bill?.bill_items || [];
+  let originalSubtotal = 0;
+  let removedAmount = 0;
+
+  for (const bi of items) {
+    const unit = Number(bi.unit_price) || 0;
+    const included = bi.include_in_bill !== false;
+    const excl = bi.exclusion_reason;
+
+    if (!included) {
+      if (excl === 'removed_entirely') {
+        const origQ = Number(bi.original_qty) || Number(bi.qty) || 0;
+        originalSubtotal += origQ * unit;
+        removedAmount += origQ * unit;
+      }
+      continue;
+    }
+
+    const remQ = Number(bi.removed_qty) || 0;
+    const billQ = Number(bi.qty) || 0;
+    if (remQ > 0) {
+      let origQ = Number(bi.original_qty);
+      if (!Number.isFinite(origQ) || origQ < billQ + remQ) {
+        origQ = billQ + remQ;
+      }
+      originalSubtotal += origQ * unit;
+      removedAmount += remQ * unit;
+    } else if (billQ > 0) {
+      originalSubtotal += billQ * unit;
+    }
+  }
+
+  if (originalSubtotal <= 0) {
+    return removedAmount > 0 ? 100 : 0;
+  }
+  const pct = (removedAmount / originalSubtotal) * 100;
+  return Math.min(100, Math.round(pct * 100) / 100);
+}

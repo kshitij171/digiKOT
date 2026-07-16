@@ -1,3 +1,5 @@
+import { createId } from './utils/id.js';
+
 const ENABLED = import.meta.env.DEV && import.meta.env.VITE_DEV_DIAGNOSTICS === '1';
 
 const SESSION_KEY = 'digikot_dev_session';
@@ -20,7 +22,7 @@ function getOrCreateSessionId() {
   try {
     let id = sessionStorage.getItem(SESSION_KEY);
     if (!id) {
-      id = crypto.randomUUID();
+      id = createId();
       sessionStorage.setItem(SESSION_KEY, id);
     }
     return id;
@@ -150,7 +152,8 @@ export async function withTraceId(traceId, fn) {
 
 export function startTrace(action, meta = {}) {
   const trace = {
-    traceId: crypto.randomUUID(),
+    // createId works on http://LAN-IP (crypto.randomUUID is secure-context only).
+    traceId: createId(),
     action,
     startedAt: Date.now(),
     meta: meta && typeof meta === 'object' ? meta : {},

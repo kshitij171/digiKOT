@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "engines": {
-    "node": ">=20 <23"
+    "node": ">=20 <27"
   },
   "scripts": {
     "dev": "vite",
@@ -21,6 +21,8 @@
     "db:verify": "node scripts/verify-data-parity.mjs",
     "probe-discovery": "node scripts/probe-discovery.mjs",
     "smoke": "node scripts/smoke-production.mjs",
+    "test:pos": "node scripts/run-pos-test-cases.mjs",
+    "test": "npm run test:pos",
     "test:dev-diag-off": "node scripts/verify-dev-diagnostics-off.mjs",
     "whatsapp:send-bill": "node --env-file=.env scripts/send-bill-whatsapp.mjs"
   },
@@ -29,7 +31,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/static": "^9.1.3",
     "aedes": "^0.51.3",
-    "better-sqlite3": "^11.10.0",
+    "better-sqlite3": "^12.11.1",
     "concurrently": "^9.2.3",
     "fastify": "^5.9.0",
     "jose": "^6.2.3",

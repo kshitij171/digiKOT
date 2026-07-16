@@ -221,10 +221,29 @@ export const billingRepository = {
       return dbAdapter.update(
         'bills',
         {
+          bill_status: 'void',
           voided_by: voidedBy || null,
           voided_at: new Date().toISOString(),
           void_reason: voidReason || null,
         },
+        [{ column: 'id', value: billId }]
+      );
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Marks a bill as printed (physical print / WhatsApp send path).
+   * Waiters may set `printed` only — `bill_status` mutations are manager-gated.
+   * @param {string} billId
+   * @returns {Promise<any>}
+   */
+  async markPrinted(billId) {
+    try {
+      return dbAdapter.update(
+        'bills',
+        { printed: true },
         [{ column: 'id', value: billId }]
       );
     } catch (err) {

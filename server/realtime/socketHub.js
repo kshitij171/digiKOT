@@ -14,9 +14,11 @@ export function attachSocketIo(httpServer, { corsOrigin = true, sessionSecret } 
     try {
       const cookieHeader = socket.handshake.headers.cookie || '';
       const match = cookieHeader.match(new RegExp(`${getCookieName()}=([^;]+)`));
-      const token = match?.[1];
+      const fromCookie = match?.[1] ? decodeURIComponent(match[1]) : null;
+      const fromAuth = socket.handshake.auth?.token || socket.handshake.query?.token;
+      const token = fromCookie || fromAuth;
       if (!token) return next(new Error('Unauthorized'));
-      const user = await verifySession(decodeURIComponent(token), sessionSecret);
+      const user = await verifySession(String(token), sessionSecret);
       socket.data.user = user;
       socket.join(`role:${user.role}`);
       socket.join(`user:${user.userId}`);

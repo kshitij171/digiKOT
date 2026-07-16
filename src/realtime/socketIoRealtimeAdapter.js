@@ -1,14 +1,23 @@
 import { io } from 'socket.io-client';
 import { devLog } from '../lib/devLog.js';
+import { getSessionToken } from '../lib/api/apiClient.js';
 
 let socket = null;
 const handlers = new Map();
 
 function ensureSocket() {
   if (socket?.connected) return socket;
+  // Recreate if an older unauthenticated socket exists
+  if (socket) {
+    socket.removeAllListeners();
+    socket.disconnect();
+    socket = null;
+  }
   socket = io({
     path: '/socket.io',
     withCredentials: true,
+    // Bearer token for LAN devices where cookies may not stick through the Vite proxy
+    auth: { token: getSessionToken() || undefined },
     transports: ['websocket', 'polling'],
   });
 
