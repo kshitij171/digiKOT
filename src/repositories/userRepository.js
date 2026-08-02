@@ -1,5 +1,5 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
-import { supabase } from '../lib/db/supabaseClient';
+import { apiClient } from '../lib/api/apiClient';
 
 export const userRepository = {
   /**
@@ -82,13 +82,7 @@ export const userRepository = {
   async listUsers() {
     try {
       // Only return non-deleted users; historical attribution (waiter_username snapshots) is preserved
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      return data || [];
+      return apiClient.query('users.listUsers');
     } catch (err) {
       throw err;
     }
@@ -139,14 +133,7 @@ export const userRepository = {
    */
   async findByUsernameAdmin(username) {
     try {
-      const normalized = String(username || '').trim().toLowerCase();
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .ilike('username', normalized)
-        .maybeSingle();
-      if (error) throw error;
-      return data || null;
+      return apiClient.query('users.findByUsernameAdmin', { username });
     } catch (err) {
       throw err;
     }
@@ -160,18 +147,7 @@ export const userRepository = {
    */
   async updatePinByUserId(userId, pinHash) {
     try {
-      const updatedAt = new Date().toISOString();
-      // Reinstate active=true and deleted_at=null so a manager PIN-reset also
-      // unblocks a previously soft-deleted account.
-      const { data, error } = await supabase
-        .from('users')
-        .update({ pin_hash: pinHash, active: true, deleted_at: null, updated_at: updatedAt })
-        .eq('id', userId)
-        .select('id, username, active, deleted_at');
-      if (error) throw error;
-      const rowsAffected = Array.isArray(data) ? data.length : 0;
-      const updated = data?.[0] ?? null;
-      return { rowsAffected, updatedUsername: updated?.username ?? null };
+      return apiClient.query('users.updatePinByUserId', { userId, pinHash });
     } catch (err) {
       throw err;
     }
@@ -184,13 +160,7 @@ export const userRepository = {
    */
   async codeExists(code) {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('id')
-        .eq('code', code)
-        .maybeSingle();
-      if (error) throw error;
-      return data !== null;
+      return apiClient.query('users.codeExists', { code });
     } catch (err) {
       throw err;
     }
@@ -203,11 +173,7 @@ export const userRepository = {
    */
   async listAllPinHashes() {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('pin_hash');
-      if (error) throw error;
-      return (data || []).map((r) => r.pin_hash).filter(Boolean);
+      return apiClient.query('users.listAllPinHashes');
     } catch (err) {
       throw err;
     }

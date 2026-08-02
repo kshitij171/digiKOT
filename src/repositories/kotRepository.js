@@ -1,5 +1,5 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
-import { supabase } from '../lib/db/supabaseClient';
+import { apiClient } from '../lib/api/apiClient';
 import { createId } from '../lib/utils/id';
 
 
@@ -144,29 +144,7 @@ export const kotRepository = {
    */
   async listClearedBySupervisor(supervisorId, { offset = 0, limit = 20 } = {}) {
     try {
-      if (!supervisorId) {
-        return { rows: [], total: 0 };
-      }
-
-      const { count, error: countError } = await supabase
-        .from('kots')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'cleared')
-        .eq('supervisor_id', supervisorId);
-
-      if (countError) throw countError;
-
-      const { data, error } = await supabase
-        .from('kots')
-        .select('*')
-        .eq('status', 'cleared')
-        .eq('supervisor_id', supervisorId)
-        .order('cleared_at', { ascending: false, nullsFirst: false })
-        .range(offset, offset + limit - 1);
-
-      if (error) throw error;
-      const rows = await attachItems(data || []);
-      return { rows, total: count ?? 0 };
+      return apiClient.query('kots.listClearedBySupervisor', { supervisorId, offset, limit });
     } catch (err) {
       throw err;
     }
@@ -181,12 +159,7 @@ export const kotRepository = {
    */
   async listCancelled({ fromDate, toDate } = {}) {
     try {
-      let q = supabase.from('kots').select('*').eq('status', 'cancelled');
-      if (fromDate) q = q.gte('cancelled_at', fromDate);
-      if (toDate) q = q.lte('cancelled_at', toDate);
-      const { data, error } = await q.order('cancelled_at', { ascending: false }).limit(200);
-      if (error) throw error;
-      return attachItems(data || []);
+      return apiClient.query('kots.listCancelled', { fromDate, toDate });
     } catch (err) {
       throw err;
     }
@@ -246,17 +219,7 @@ export const kotRepository = {
    */
   async assignSupervisor(kotId, supervisorId, supervisorName) {
     try {
-      const { error } = await supabase
-        .from('kots')
-        .update({
-          supervisor_id: supervisorId,
-          supervisor_name: supervisorName || null,
-          assigned_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', kotId)
-        .is('supervisor_id', null);
-      if (error) throw error;
+      await apiClient.query('kots.assignSupervisor', { kotId, supervisorId, supervisorName });
     } catch (err) {
       throw err;
     }

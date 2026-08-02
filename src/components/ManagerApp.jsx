@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { auditService } from '../services/auditService';
 import { managerService } from '../services/managerService';
 import { billingService } from '../services/billingService';
@@ -7,11 +8,23 @@ import { menuService } from '../services/menuService';
 import CancelledKotsTab from './CancelledKotsTab';
 import AuditBillDetailPanel from './AuditBillDetailPanel';
 import { buildManagerBillDetail } from '../services/auditBillDetailService';
+import { computeRemovalDiscountPct } from '../lib/billing/billTotals';
 import { useAuth } from '../context/AuthContext';
-import { hashPin, validatePin } from '../lib/utils/auth';
+import {
+  getCreatableStaffRoles,
+  hashPin,
+  roleDisplayLabel,
+  validatePin,
+} from '../lib/utils/auth';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import './ManagerApp.css';
 
-const ROLE_LABELS = { waiter: 'Waiter', kitchen_supervisor: 'Kitchen Supervisor', manager: 'Manager' };
+const ROLE_LABELS = {
+  waiter: 'Waiter',
+  kitchen_supervisor: 'Kitchen Supervisor',
+  manager: 'Manager',
+  owner: 'Owner',
+};
 
 // ── Helpers ───────────────────────────────────────────────
 function fmtDate(iso) {
@@ -21,50 +34,15 @@ function fmtDate(iso) {
 function fmtAmt(n) { return n != null ? `₹${Number(n).toFixed(2)}` : '—'; }
 function shortId(id) { return id ? '#' + String(id).slice(-6).toUpperCase() : '—'; }
 function todayStr() { return new Date().toISOString().slice(0, 10); }
+function daysAgoStr(days) {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+}
 function toFrom(dateStr) { return dateStr ? new Date(dateStr + 'T00:00:00').toISOString() : null; }
 function toTo(dateStr) { return dateStr ? new Date(dateStr + 'T23:59:59').toISOString() : null; }
 
 /** Removal discount % from bill_items (manager-approved removals, not waiter % discount). */
-function computeRemovalDiscountPct(bill) {
-  const items = bill.bill_items || [];
-  let originalSubtotal = 0;
-  let removedAmount = 0;
-
-  for (const bi of items) {
-    const unit = Number(bi.unit_price) || 0;
-    const included = bi.include_in_bill !== false;
-    const excl = bi.exclusion_reason;
-
-    if (!included) {
-      if (excl === 'removed_entirely') {
-        const origQ = Number(bi.original_qty) || Number(bi.qty) || 0;
-        originalSubtotal += origQ * unit;
-        removedAmount += origQ * unit;
-      }
-      continue;
-    }
-
-    const remQ = Number(bi.removed_qty) || 0;
-    const billQ = Number(bi.qty) || 0;
-    if (remQ > 0) {
-      let origQ = Number(bi.original_qty);
-      if (!Number.isFinite(origQ) || origQ < billQ + remQ) {
-        origQ = billQ + remQ;
-      }
-      originalSubtotal += origQ * unit;
-      removedAmount += remQ * unit;
-    } else if (billQ > 0) {
-      originalSubtotal += billQ * unit;
-    }
-  }
-
-  if (originalSubtotal <= 0) {
-    return removedAmount > 0 ? 100 : 0;
-  }
-  const pct = (removedAmount / originalSubtotal) * 100;
-  return Math.min(100, Math.round(pct * 100) / 100);
-}
-
 function matchesRemovalDiscountFilter(pct, filter) {
   if (filter === 'gte50') return pct >= 50;
   if (filter === 'eq100') return pct >= 99.995;
@@ -112,12 +90,17 @@ function ModificationsTab({ currentUser }) {
   const handleApprove = async (requestId) => {
     setActing(requestId);
     setActionError('');
+    const trace = startTrace('bill_mod_approve', { requestId });
     try {
-      await billModificationService.approveRequest(requestId, currentUser.id);
+      await withTraceId(trace.traceId, () =>
+        billModificationService.approveRequest(requestId, currentUser.id)
+      );
+      endTrace(trace, 'ok');
       setRequests((prev) =>
         prev.map((r) => (r.id === requestId ? { ...r, status: 'approved' } : r))
       );
     } catch (err) {
+      endTrace(trace, 'error', err);
       setActionError(err.message || 'Failed to approve.');
     } finally {
       setActing(null);
@@ -139,8 +122,12 @@ function ModificationsTab({ currentUser }) {
     }
     setActing(rejectModal.requestId);
     setActionError('');
+    const trace = startTrace('bill_mod_reject', { requestId: rejectModal.requestId });
     try {
-      await billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, reason);
+      await withTraceId(trace.traceId, () =>
+        billModificationService.rejectRequest(rejectModal.requestId, currentUser.id, reason)
+      );
+      endTrace(trace, 'ok');
       const nowIso = new Date().toISOString();
       const mgrLabel =
         (currentUser?.name && String(currentUser.name).trim()) ||
@@ -162,6 +149,7 @@ function ModificationsTab({ currentUser }) {
       setRejectModal(null);
       setRejectReason('');
     } catch (err) {
+      endTrace(trace, 'error', err);
       setActionError(err.message || 'Failed to reject.');
     } finally {
       setActing(null);
@@ -370,6 +358,7 @@ function StaffTab({ currentUser }) {
   const confirmPinRef = React.useRef(null);
   const newPinRef = React.useRef(null);
   const confirmNewPinRef = React.useRef(null);
+  const creatableRoles = getCreatableStaffRoles(currentUser?.role);
 
   const refreshStaff = useCallback(async () => {
     if (!currentUser) return;
@@ -522,9 +511,9 @@ function StaffTab({ currentUser }) {
           <div className="staff-field">
             <label>Role *</label>
             <select className="staff-select" value={staffForm.role} onChange={(e) => setStaffForm((p) => ({ ...p, role: e.target.value }))}>
-              <option value="waiter">Waiter</option>
-              <option value="kitchen_supervisor">Kitchen Supervisor</option>
-              <option value="manager">Manager</option>
+              {creatableRoles.map((role) => (
+                <option key={role} value={role}>{ROLE_LABELS[role] || role}</option>
+              ))}
             </select>
           </div>
           <div className="staff-field">
@@ -782,7 +771,9 @@ function PagersTab({ currentUser }) {
   return (
     <div>
       <p className="mgr-section-h">
-        Pagers are registered during install setup (<code>/setup</code>). Assign a free pager to a waiter for shift handover; only free pagers appear in the list.
+        Register devices on the{' '}
+        <Link to="/pager-register">Pager register</Link> page (or via install setup).
+        Assign a free pager to a waiter for shift handover; only free pagers appear in the list.
       </p>
       {err && <p className="staff-error-msg">{err}</p>}
       {msg && <p className="staff-message">{msg}</p>}
@@ -1096,43 +1087,135 @@ function BillsTab() {
 // ── TOOLS TAB ─────────────────────────────────────────────
 function ToolsTab({ currentUser }) {
   const [logs, setLogs] = useState([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState('');
+  const [dates, setDates] = useState({ from: todayStr(), to: todayStr() });
+
+  const [waiters, setWaiters] = useState([]);
   const [form, setForm] = useState({ tableNumber: '', kotItemId: '', waiterUserId: '', reason: '' });
   const [saving, setSaving] = useState(false);
+  const [adjustMsg, setAdjustMsg] = useState('');
+  const [adjustErr, setAdjustErr] = useState('');
 
-  useEffect(() => auditService.subscribeRecent(setLogs), []);
+  const loadLogs = useCallback(async () => {
+    setLogsLoading(true);
+    setLogsError('');
+    try {
+      const rows = await auditService.listByDate({
+        fromDate: toFrom(dates.from),
+        toDate: toTo(dates.to),
+      });
+      setLogs(rows || []);
+    } catch (e) {
+      setLogsError(e.message || 'Failed to load audit logs.');
+    } finally {
+      setLogsLoading(false);
+    }
+  }, [dates.from, dates.to]);
+
+  useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await managerService.listStaff({ managerUser: currentUser });
+        if (!cancelled) setWaiters((rows || []).filter((u) => u.role === 'waiter'));
+      } catch {
+        /* dropdown stays empty if staff cannot be loaded */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [currentUser]);
 
   const submitAdjustment = async (e) => {
     e.preventDefault();
+    setAdjustMsg('');
+    setAdjustErr('');
+
+    const tableNumber = Number(form.tableNumber);
+    if (!Number.isInteger(tableNumber) || tableNumber <= 0) {
+      setAdjustErr('Enter a valid table number.');
+      return;
+    }
+    if (!form.kotItemId.trim()) {
+      setAdjustErr('KOT Item ID is required.');
+      return;
+    }
+    if (!form.waiterUserId) {
+      setAdjustErr('Select a waiter.');
+      return;
+    }
+    if (!form.reason.trim()) {
+      setAdjustErr('A reason is required.');
+      return;
+    }
+
     setSaving(true);
     try {
-      await managerService.createPostPrepAdjustment?.({
-        managerUserId: currentUser?.id || 'manager',
+      await managerService.createPostPrepAdjustment({
+        managerUserId: currentUser?.id,
         waiterUserId: form.waiterUserId,
-        tableNumber: Number(form.tableNumber),
-        kotItemId: form.kotItemId,
-        reason: form.reason,
+        tableNumber,
+        kotItemId: form.kotItemId.trim(),
+        reason: form.reason.trim(),
       });
+      setAdjustMsg('Adjustment recorded successfully.');
       setForm({ tableNumber: '', kotItemId: '', waiterUserId: '', reason: '' });
+      loadLogs();
+    } catch (err) {
+      setAdjustErr(
+        staffFacingError(err, 'Unable to record adjustment. Check the KOT Item ID and try again.')
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  const sField = (label, inputProps) => (
-    <div className="staff-field">
-      <label>{label}</label>
-      <input className="staff-input" {...inputProps} />
-    </div>
-  );
-
   return (
     <div>
       <div className="staff-section">
         <div className="staff-section-title">Post-Preparation Bill Adjustment</div>
+        {adjustErr && <p className="staff-error-msg">{adjustErr}</p>}
+        {adjustMsg && <p className="staff-message">{adjustMsg}</p>}
         <form onSubmit={submitAdjustment} className="staff-form">
-          {sField('Table Number *', { placeholder: 'e.g. 5', value: form.tableNumber, onChange: (e) => setForm((p) => ({ ...p, tableNumber: e.target.value })), required: true })}
-          {sField('KOT Item ID *', { placeholder: 'kot_item id', value: form.kotItemId, onChange: (e) => setForm((p) => ({ ...p, kotItemId: e.target.value })), required: true })}
-          {sField('Waiter User ID *', { placeholder: 'user id', value: form.waiterUserId, onChange: (e) => setForm((p) => ({ ...p, waiterUserId: e.target.value })), required: true })}
+          <div className="staff-field">
+            <label>Table Number *</label>
+            <input
+              className="staff-input"
+              placeholder="e.g. 5"
+              inputMode="numeric"
+              value={form.tableNumber}
+              onChange={(e) => setForm((p) => ({ ...p, tableNumber: e.target.value.replace(/\D/g, '') }))}
+              required
+            />
+          </div>
+          <div className="staff-field">
+            <label>KOT Item ID *</label>
+            <input
+              className="staff-input"
+              placeholder="kot_item id"
+              value={form.kotItemId}
+              onChange={(e) => setForm((p) => ({ ...p, kotItemId: e.target.value }))}
+              required
+            />
+          </div>
+          <div className="staff-field">
+            <label>Waiter *</label>
+            <select
+              className="staff-select"
+              value={form.waiterUserId}
+              onChange={(e) => setForm((p) => ({ ...p, waiterUserId: e.target.value }))}
+              required
+            >
+              <option value="">— Select waiter —</option>
+              {waiters.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}{w.username ? ` (@${w.username})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="staff-field">
             <label>Reason *</label>
             <textarea
@@ -1151,20 +1234,51 @@ function ToolsTab({ currentUser }) {
         </form>
       </div>
 
-      {/* Audit Feed */}
       <div className="staff-section">
         <div className="staff-section-title">Audit Feed</div>
-        {logs.length === 0 ? (
-          <p style={{ color: '#475569', fontSize: '0.85rem' }}>No audit records yet.</p>
+        <div className="bills-toolbar" style={{ marginBottom: '0.75rem' }}>
+          <div className="bills-toolbar-dates">
+            <div className="bills-field">
+              <label className="bills-field-label" htmlFor="audit-from">From</label>
+              <input
+                id="audit-from"
+                type="date"
+                className="audit-date-input"
+                value={dates.from}
+                onChange={(e) => setDates((p) => ({ ...p, from: e.target.value }))}
+              />
+            </div>
+            <div className="bills-field">
+              <label className="bills-field-label" htmlFor="audit-to">To</label>
+              <input
+                id="audit-to"
+                type="date"
+                className="audit-date-input"
+                value={dates.to}
+                onChange={(e) => setDates((p) => ({ ...p, to: e.target.value }))}
+              />
+            </div>
+          </div>
+          <button type="button" className="btn-bills-search" onClick={loadLogs} disabled={logsLoading}>
+            {logsLoading ? 'Loading…' : 'Refresh'}
+          </button>
+        </div>
+
+        {logsLoading ? (
+          <p className="audit-empty">Loading…</p>
+        ) : logsError ? (
+          <p className="audit-error">{logsError}</p>
+        ) : logs.length === 0 ? (
+          <p className="audit-empty">No audit records in this date range.</p>
         ) : (
           logs.map((log) => (
-            <div key={log.id} style={{ borderBottom: '1px solid #334155', padding: '0.5rem 0' }}>
-              <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{log.action}</div>
-              <div style={{ fontSize: '0.78rem', color: '#64748b' }}>
+            <div key={log.id} style={{ borderBottom: '1px solid var(--color-border-default)', padding: '0.5rem 0' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--color-text-primary)' }}>{log.action}</div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>
                 {log.entity_type} · {log.entity_id} · {fmtDate(log.created_at)}
               </div>
               {log.remarks && (
-                <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '0.15rem' }}>
+                <div style={{ fontSize: '0.78rem', color: 'var(--color-text-secondary)', marginTop: '0.15rem' }}>
                   {log.remarks}
                 </div>
               )}
@@ -1172,6 +1286,261 @@ function ToolsTab({ currentUser }) {
           ))
         )}
       </div>
+    </div>
+  );
+}
+
+// ── ANALYTICS TAB ─────────────────────────────────────────
+function BestsellersSection({ currentUser }) {
+  const [dates, setDates] = useState({ from: daysAgoStr(6), to: todayStr() });
+  const [sortBy, setSortBy] = useState('quantity-desc');
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await managerService.getBestsellers({
+          managerUser: currentUser,
+          fromDate: toFrom(dates.from),
+          toDate: toTo(dates.to),
+        });
+        if (!cancelled) setRows(data || []);
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Failed to load bestsellers.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [currentUser, dates.from, dates.to]);
+
+  const displayedRows = useMemo(() => {
+    const sorted = [...rows];
+    sorted.sort((a, b) => {
+      const delta = (Number(a.totalQuantity) || 0) - (Number(b.totalQuantity) || 0);
+      if (delta !== 0) return sortBy === 'quantity-asc' ? delta : -delta;
+      return String(a.itemName || '').localeCompare(String(b.itemName || ''));
+    });
+    return sorted;
+  }, [rows, sortBy]);
+
+  return (
+    <div className="staff-section">
+      <div className="staff-section-title">Bestsellers</div>
+      <p className="analytics-section-sub" style={{ margin: '0 0 0.75rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+        Most ordered items from cleared bills in the selected date range.
+      </p>
+      <div className="bills-toolbar" style={{ marginBottom: '0.75rem' }}>
+        <div className="bills-toolbar-dates">
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="bestsellers-from">From</label>
+            <input
+              id="bestsellers-from"
+              type="date"
+              className="audit-date-input"
+              value={dates.from}
+              onChange={(e) => setDates((prev) => ({ ...prev, from: e.target.value }))}
+            />
+          </div>
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="bestsellers-to">To</label>
+            <input
+              id="bestsellers-to"
+              type="date"
+              className="audit-date-input"
+              value={dates.to}
+              onChange={(e) => setDates((prev) => ({ ...prev, to: e.target.value }))}
+            />
+          </div>
+        </div>
+        <div className="bills-field">
+          <label className="bills-field-label" htmlFor="bestsellers-sort-by">Sort by</label>
+          <select
+            id="bestsellers-sort-by"
+            className="audit-date-input"
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+          >
+            <option value="quantity-desc">Quantity (High to Low)</option>
+            <option value="quantity-asc">Quantity (Low to High)</option>
+          </select>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="audit-empty">Loading bestsellers…</p>
+      ) : error ? (
+        <p className="audit-error">{error}</p>
+      ) : displayedRows.length === 0 ? (
+        <p className="audit-empty">No ordered items found for this date range.</p>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table className="audit-table">
+            <thead>
+              <tr>
+                <th>Rank</th>
+                <th>Item Name</th>
+                <th>Total Quantity Ordered</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayedRows.map((row, index) => (
+                <tr key={row.itemName}>
+                  <td>{index + 1}</td>
+                  <td>{row.itemName}</td>
+                  <td>{row.totalQuantity}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AnalyticsTab({ currentUser }) {
+  const [date, setDate] = useState(todayStr());
+  const [selectedWaiterId, setSelectedWaiterId] = useState('all');
+  const [sortBy, setSortBy] = useState('tablesServed');
+  const [sortDir, setSortDir] = useState('desc');
+  const [waiters, setWaiters] = useState([]);
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const data = await managerService.getWaiterPerformance({
+          managerUser: currentUser,
+          fromDate: toFrom(date),
+          toDate: toTo(date),
+        });
+        if (cancelled) return;
+        setWaiters(data.waiters || []);
+        setRows(data.rows || []);
+      } catch (e) {
+        if (!cancelled) setError(e.message || 'Failed to load waiter performance.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [currentUser, date]);
+
+  const displayedRows = useMemo(() => {
+    const filtered = selectedWaiterId === 'all'
+      ? rows
+      : rows.filter((row) => row.waiterId === selectedWaiterId);
+    const direction = sortDir === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => {
+      const delta = (Number(a[sortBy]) || 0) - (Number(b[sortBy]) || 0);
+      if (delta !== 0) return delta * direction;
+      return String(a.waiterName || '').localeCompare(String(b.waiterName || ''));
+    });
+  }, [rows, selectedWaiterId, sortBy, sortDir]);
+
+  return (
+    <div aria-label="Analytics">
+      <div className="staff-section">
+        <div className="staff-section-title">Waiter Performance</div>
+        <p style={{ margin: '0 0 0.75rem', color: 'var(--color-text-muted)', fontSize: '0.82rem' }}>
+          Daily table clear counts and completed item throughput by waiter.
+        </p>
+        <div className="bills-toolbar" style={{ marginBottom: '0.75rem' }}>
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="analytics-date">Date</label>
+            <input
+              id="analytics-date"
+              type="date"
+              className="audit-date-input"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
+          </div>
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="analytics-waiter">Waiter</label>
+            <select
+              id="analytics-waiter"
+              className="audit-date-input"
+              value={selectedWaiterId}
+              onChange={(e) => setSelectedWaiterId(e.target.value)}
+            >
+              <option value="all">All Waiters</option>
+              {waiters.map((waiter) => (
+                <option key={waiter.id} value={waiter.id}>
+                  {waiter.name || waiter.username || 'Unnamed Waiter'}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="bills-field">
+            <label className="bills-field-label" htmlFor="analytics-sort-by">Sort by</label>
+            <select
+              id="analytics-sort-by"
+              className="audit-date-input"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="tablesServed">Tables Served</option>
+              <option value="itemsProcessed">Items Processed</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            className="btn-bills-search"
+            onClick={() => setSortDir((dir) => (dir === 'asc' ? 'desc' : 'asc'))}
+          >
+            {sortDir === 'asc' ? 'Ascending' : 'Descending'}
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="audit-empty">Loading waiter performance…</p>
+        ) : error ? (
+          <p className="audit-error">{error}</p>
+        ) : displayedRows.length === 0 ? (
+          <p className="audit-empty">No waiter activity found for this date.</p>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th>Waiter Name</th>
+                  <th>Tables Served</th>
+                  <th>Items Processed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {displayedRows.map((row) => (
+                  <tr key={row.waiterId || row.waiterUsername || row.waiterName}>
+                    <td>
+                      <div>{row.waiterName}</div>
+                      {row.waiterUsername && (
+                        <div style={{ fontSize: '0.78rem', color: 'var(--color-text-muted)' }}>@{row.waiterUsername}</div>
+                      )}
+                    </td>
+                    <td>{row.tablesServed}</td>
+                    <td>{row.itemsProcessed}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+      <BestsellersSection currentUser={currentUser} />
     </div>
   );
 }
@@ -1300,7 +1669,7 @@ export default function ManagerApp() {
   const [activeTab, setActiveTab] = useState('modifications');
   const [pendingCount, setPendingCount] = useState(0);
 
-  // Shared pending queue count for tab badge (all managers)
+  // Shared pending queue count for tab badge (all managers / owners)
   useEffect(() => {
     return billModificationService.subscribePendingCount(setPendingCount);
   }, []);
@@ -1312,6 +1681,7 @@ export default function ManagerApp() {
     { id: 'inventory',     label: 'Inventory' },
     { id: 'staff',         label: 'Staff' },
     { id: 'pagers',        label: 'Pagers' },
+    { id: 'analytics',     label: 'Analytics' },
     { id: 'tools',         label: 'Tools' },
   ];
 
@@ -1320,7 +1690,7 @@ export default function ManagerApp() {
       <header className="mgr-topbar">
         <div className="mgr-topbar-user">
           <div className="mgr-topbar-user-text">
-            <span className="mgr-topbar-user-label">Manager</span>
+            <span className="mgr-topbar-user-label">{roleDisplayLabel(currentUser?.role)}</span>
             <span className="mgr-topbar-user-name">@{currentUser?.username || currentUser?.name}</span>
           </div>
           <button type="button" className="mgr-logout-btn mgr-logout-mobile" onClick={logoutUser}>
@@ -1360,6 +1730,7 @@ export default function ManagerApp() {
         {activeTab === 'inventory'     && <InventoryTab />}
         {activeTab === 'staff'         && <StaffTab currentUser={currentUser} />}
         {activeTab === 'pagers'        && <PagersTab currentUser={currentUser} />}
+        {activeTab === 'analytics'     && <AnalyticsTab currentUser={currentUser} />}
         {activeTab === 'tools'         && <ToolsTab currentUser={currentUser} />}
       </div>
     </div>

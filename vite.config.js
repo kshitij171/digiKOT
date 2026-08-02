@@ -1,20 +1,36 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import { whatsappApiPlugin } from './server/viteWhatsappApiPlugin.js'
-import { setupApiPlugin } from './server/viteSetupApiPlugin.js'
 
-// https://vitejs.dev/config/
+/** Ensure Set-Cookie from the API works when the UI is opened via a LAN IP. */
+function fixProxyCookies(proxyRes) {
+  const cookies = proxyRes.headers['set-cookie']
+  if (!cookies) return
+  const list = Array.isArray(cookies) ? cookies : [cookies]
+  proxyRes.headers['set-cookie'] = list.map((cookie) =>
+    cookie
+      .replace(/;\s*Secure/gi, '')
+      .replace(/;\s*Domain=[^;]*/gi, '')
+      .replace(/;\s*SameSite=None/gi, '; SameSite=Lax')
+  )
+}
+
+const apiProxy = {
+  target: 'http://127.0.0.1:3000',
+  changeOrigin: true,
+  configure: (proxy) => {
+    proxy.on('proxyRes', fixProxyCookies)
+  },
+}
+
 export default defineConfig({
-  plugins: [react(), whatsappApiPlugin(), setupApiPlugin()],
+  plugins: [react()],
   server: {
+    host: '0.0.0.0',
     proxy: {
-      '/api': {
-        target: 'http://localhost:3000',
-        bypass: (req) => {
-          const url = req.url || ''
-          if (url.startsWith('/api/whatsapp') || url.startsWith('/api/setup')) return url
-          return undefined
-        },
+      '/api': apiProxy,
+      '/socket.io': {
+        ...apiProxy,
+        ws: true,
       },
     },
   },

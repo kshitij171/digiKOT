@@ -1,6 +1,6 @@
 # ============================================================
 #  KOT SYSTEM — CURSOR AI RULES
-#  Applies to: Vite + React 18, Supabase JS v2, react-router-dom v6
+#  Applies to: Vite + React 18, Fastify + SQLite, Socket.IO, react-router-dom v6
 #  Team: Small team. Enforce these rules on every file touched.
 # ============================================================
 
@@ -26,24 +26,24 @@
 
 ## 1.1 Strict layer separation
 
-COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
+COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter → apiClient → server
 
 - Components (src/components/) MUST NOT import from src/lib/db/,
-  call supabaseClient directly, or write raw Supabase queries.
+  call apiClient directly, or write raw HTTP/DB queries.
 - Components MUST NOT import repositories directly. Always go through
   a service.
 - Services (src/services/) orchestrate business logic, call one or
   more repositories, and handle cross-cutting concerns (notifications,
   audit logging, error mapping).
 - Repositories (src/repositories/) are the ONLY layer allowed to call
-  supabaseClient or dbAdapter directly. Complex multi-table queries
+  dbAdapter or apiClient directly. Complex multi-table queries
   (e.g. bills joined with bill_items) are acceptable here; they do not
   need to go through dbAdapter if the query is non-trivial.
 - src/lib/db/dbAdapter.js is a thin wrapper for simple single-table
-  CRUD. Repositories may bypass it for joins, RPCs, or upserts.
+  CRUD. Repositories may bypass it for joins, named queries, or upserts.
 - Realtime subscriptions belong in src/realtime/ or inside services
-  that call the realtime adapter. Never set up a Supabase channel
-  directly inside a component.
+  that call the realtime adapter (socketIoRealtimeAdapter). Never set up
+  a Socket.IO or polling subscription directly inside a component.
 
 ## 1.2 Context usage
 
@@ -71,30 +71,25 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
 
 ## 2.1 Environment variables
 
-- Supabase URL and anon key MUST come from Vite env vars:
-    VITE_SUPABASE_URL
-    VITE_SUPABASE_ANON_KEY
-- Never hardcode these values anywhere in source code, comments,
-  or test files.
+- Frontend uses HTTP-only session cookies via apiClient (no API keys in browser).
+- Server secrets (SESSION_SECRET, WhatsApp tokens) live in `.env` / `.env.local`
+  and are read only in `server/`. Never expose them to Vite `VITE_*` vars.
+- Never hardcode secrets anywhere in source code, comments, or test files.
 - Never log, console.log, or expose env vars at runtime.
-- Do not add any other secrets (service role key, JWT secret, etc.)
-  to any frontend file. If a privileged operation is needed, it must
-  go through a Supabase Edge Function or a backend route — never the
-  frontend.
+- Privileged operations (setup API, WhatsApp) go through server routes only.
 
-## 2.2 No Row Level Security — compensate in code
+## 2.2 Access control — enforce in server + app layer
 
-- This project has NO Supabase RLS policies. Access control is
-  enforced entirely in the application layer.
+- Access control is enforced in the Fastify server (session cookie auth)
+  and in repository/service filters.
 - Every repository function that fetches data for a specific role MUST
   filter by the appropriate field (e.g. waiter_user_id, session_id)
   so users cannot accidentally fetch another user's records.
 - Never write a repository function that returns all rows of a
   sensitive table (users, bills, kots) without a deliberate filter
   or a confirmed manager-only caller.
-- If RLS is ever enabled in a migration, remove the corresponding
-  in-app filters only after confirming the RLS policy covers the
-  same scope.
+- If database-level policies are ever added, remove the corresponding
+  in-app filters only after confirming they cover the same scope.
 
 ## 2.3 PIN & authentication security
 
@@ -116,10 +111,8 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
 
 ## 2.4 Input handling
 
-- Never interpolate user-supplied strings directly into Supabase
-  filter values without going through the Supabase JS client's
-  parameterised API (.eq(), .filter(), etc.).
-- Never use .rpc() with raw string concatenation for user inputs.
+- Never interpolate user-supplied strings directly into SQL or URL paths
+  without parameterised queries on the server.
 - Numeric inputs (qty, price, discount) must be parsed and validated
   (Number.isFinite, value > 0) before being written to the database.
 - Role values accepted from any input must be validated against the
@@ -141,13 +134,10 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
 
 ## 3.1 Canonical schema source
 
-- sql/schema.sql is the canonical, consolidated schema. It is the
-  reference for column names, types, constraints, and relationships.
-- supabase/migrations/*.sql are the incremental change history.
-  When they conflict with sql/schema.sql (which should not happen),
-  escalate — do not guess which is correct.
+- server/db/migrations/001_init.sql is the canonical SQLite schema.
+- sql/schema.sql is legacy Postgres reference (historical).
 - Never infer column names from component code or variable names.
-  Always verify against sql/schema.sql before writing a query.
+  Always verify against server/db/migrations/001_init.sql before writing a query.
 
 ## 3.2 Schema change policy (MODERATE)
 
@@ -370,9 +360,8 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
     b) Returned as { data: null, error } objects if the layer uses
        that pattern consistently.
   Never silently swallow errors with an empty catch block.
-- Supabase calls return { data, error }. Always destructure and check
-  the error field before using data. Never assume data is non-null.
-- User-facing error messages must not expose internal Supabase error
+- API calls return data or throw. Check errors before using data. Never assume data is non-null.
+- User-facing error messages must not expose internal server/SQL error
   strings, column names, or stack traces. Map them to friendly messages
   in the service layer.
 
@@ -401,8 +390,8 @@ COMPONENTS  →  SERVICES  →  REPOSITORIES  →  dbAdapter / Supabase
 - Services:        camelCase, verb-noun pattern (createKot, listBills)
 - Repositories:    camelCase, verb-noun pattern (findByPinHash, softDelete)
 - Components:      PascalCase (WaiterApp, KitchenApp)
-- DB column refs:  use the exact snake_case name from sql/schema.sql
-                   in all Supabase queries — no aliasing to camelCase
+- DB column refs: use the exact snake_case name from server/db/migrations/001_init.sql
+                   in all queries — no aliasing to camelCase in the DB layer.
                    in the query itself. Map to camelCase in the
                    repository return value if needed.
 - Event handlers:  handle<Action> prefix (handleSubmitKot, handleClear)

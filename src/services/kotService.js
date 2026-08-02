@@ -313,7 +313,8 @@ export const kotService = {
   },
 
   /**
-   * Clears a table: finalizes bill if needed, deletes cleared KOTs, and writes audit.
+   * Clears a table: finalizes bill if needed and closes the table session.
+   * Cleared KOT rows are intentionally preserved for analytics/audit history.
    * @param {number} tableNumber
    * @param {string} actorUserId
    * @param {object} [options]
@@ -336,7 +337,6 @@ export const kotService = {
         });
       }
 
-      await kotRepository.deleteClearedByTable(tableNumber);
       await tableService.clearTable(tableNumber);
       await auditService.log({
         actor_user_id: actorUserId,

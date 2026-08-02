@@ -1,5 +1,5 @@
 import { dbAdapter } from '../lib/db/dbAdapter';
-import { supabase } from '../lib/db/supabaseClient';
+import { apiClient } from '../lib/api/apiClient';
 import { createId } from '../lib/utils/id';
 
 /** Only these values are valid for bill_modification_requests.status */
@@ -90,15 +90,7 @@ export const billModificationRepository = {
    */
   async listForManager(managerUserId, limit = 200) {
     try {
-      if (!managerUserId) return [];
-      const { data, error } = await supabase
-        .from('bill_modification_requests')
-        .select('*')
-        .or(`status.eq.${BillModRequestStatus.PENDING},reviewed_by_manager_id.eq.${managerUserId}`)
-        .order('requested_at', { ascending: false })
-        .limit(limit);
-      if (error) throw error;
-      return data || [];
+      return apiClient.query('billMod.listForManager', { managerUserId, limit });
     } catch (err) {
       throw err;
     }

@@ -4,6 +4,7 @@ import { CATEGORY_ORDER } from '../data/categoryOrder';
 import { menuService } from '../services/menuService';
 import { kotService } from '../services/kotService';
 import { cancelService } from '../services/cancelService';
+import { startTrace, endTrace, withTraceId } from '../lib/devLog.js';
 import PastKotsOverlay from './PastKotsOverlay';
 import './KitchenApp.css';
 
@@ -45,17 +46,26 @@ export default function KitchenApp() {
     const kot = kots.find(k => k.id === kotId);
     if (!kot) return;
 
+    const trace = newStatus === 'done'
+      ? startTrace('mark_item_done', { kotId, itemId })
+      : null;
+
     try {
-      await kotService.markItemStatus({
-        kotId,
-        itemId,
-        status: newStatus,
-        kitchenUserId: currentUser?.id || null,
-        supervisorId: effectiveSupervisorId || null,
-        supervisorName: supervisorName || null,
-      });
+      await withTraceId(trace?.traceId, () =>
+        kotService.markItemStatus({
+          kotId,
+          itemId,
+          status: newStatus,
+          kitchenUserId: currentUser?.id || null,
+          supervisorId: effectiveSupervisorId || null,
+          supervisorName: supervisorName || currentUser?.name || currentUser?.username || null,
+        })
+      );
+      if (trace) endTrace(trace, 'ok');
     } catch (err) {
+      if (trace) endTrace(trace, 'error', err);
       console.error("Error updating item status:", err);
+      alert(err?.message || 'Could not update item status. Please try again.');
     }
   };
 
@@ -96,6 +106,7 @@ export default function KitchenApp() {
       await menuService.setOutOfStock(itemId, isOos);
     } catch (e) {
       console.error("Failed to update menu status:", e);
+      alert(e?.message || 'Could not update menu availability. Please try again.');
     }
   };
 
@@ -106,12 +117,24 @@ export default function KitchenApp() {
         reviewerUserId: currentUser?.id || null,
         approve: isApprove,
         supervisorId: effectiveSupervisorId || null,
-        supervisorName: supervisorName || null,
+        supervisorName: supervisorName || currentUser?.name || currentUser?.username || null,
       });
     } catch (e) {
       console.error("Error handling cancellation request:", e);
+      alert(e?.message || 'Could not review cancellation request. Please try again.');
     }
   };
+
+  const RESOLVED_STATUSES = ['done', 'removed', 'out_of_stock', 'cancelled'];
+  const liveKots = useMemo(
+    () =>
+      kots.filter(
+        (kot) =>
+          !kot.items?.length ||
+          !kot.items.every((i) => RESOLVED_STATUSES.includes(i.status))
+      ),
+    [kots]
+  );
 
   const oosCategories = useMemo(() => {
     const inMenu = new Set(menuItems.map((item) => item.category));
@@ -201,21 +224,20 @@ export default function KitchenApp() {
               ))}
             </div>
           )}
-        {kots.length === 0 ? (
+        {liveKots.length === 0 ? (
           <div className="kitchen-empty">
             <div className="kitchen-empty-icon">✅</div>
             <p>Kitchen is clear — no open orders</p>
           </div>
         ) : (
           <div className="kots-grid">
-            {kots.map(kot => {
+            {liveKots.map(kot => {
               const elapsedMins = kot.createdAt ? Math.floor((currentTime.getTime() - new Date(kot.createdAt).getTime()) / 60000) : 0;
               const isUrgent = elapsedMins >= 15;
-              const shortId = '#' + kot.id.slice(-4).toUpperCase();
-              const resolvedCount = kot.items?.filter(i => ['done','removed','out_of_stock','cancelled'].includes(i.status)).length || 0;
+              const shortId = '#' + (kot.id || '').slice(-4).toUpperCase();
+              const resolvedCount = kot.items?.filter(i => RESOLVED_STATUSES.includes(i.status)).length || 0;
               const totalCount = kot.items?.length || 1;
               const progressPct = Math.round((resolvedCount / totalCount) * 100);
-              const allResolved = kot.items && kot.items.every(i => ['done', 'removed', 'out_of_stock', 'cancelled'].includes(i.status));
 
               return (
                 <div key={kot.id} className={`kot-card${isUrgent ? ' urgent' : ''}`}>

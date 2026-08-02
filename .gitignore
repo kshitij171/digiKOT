@@ -1,7 +1,12 @@
 node_modules
+dist/
 .env
 .env.local
 .env.network
 .cursor
 .pager-bridge-cursor.json
 tmp/
+data/
+server/db/fixtures/
+dev-logs/
+.DS_Store

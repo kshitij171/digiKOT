@@ -1,7 +1,0 @@
-.env
-.env.local
-deploy/.env
-license/license.key
-server/node_modules
-web/node_modules
-web/dist

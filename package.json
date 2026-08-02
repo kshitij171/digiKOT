@@ -1,37 +1,50 @@
 {
   "name": "kot-system",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=20 <27"
+  },
   "scripts": {
     "dev": "vite",
+    "dev:server": "node --env-file=.env.local --watch server/app.js",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev:web\"",
     "build": "vite build",
+    "start": "node server/app.js",
     "preview": "vite preview",
-    "supabase:start": "npx supabase start",
-    "supabase:stop": "npx supabase stop",
-    "supabase:status": "npx supabase status",
-    "supabase:reset": "npx supabase db reset",
-    "dev:local": "npm run supabase:start && vite",
-    "dev:lan": "node scripts/lan-demo.mjs",
-    "demo": "node scripts/lan-demo.mjs",
-    "demo:start": "npm run supabase:start && npm run demo",
-    "install:server": "npm run supabase:start && npm run demo",
-    "install:full": "node scripts/install-full.mjs",
+    "db:migrate": "node server/db/migrate.js",
+    "db:seed": "node server/db/seed.js",
+    "db:export": "node scripts/export-supabase-data.mjs",
+    "db:import": "node scripts/import-pg-to-sqlite.mjs",
+    "db:verify": "node scripts/verify-data-parity.mjs",
     "probe-discovery": "node scripts/probe-discovery.mjs",
-    "pager-bridge": "node --env-file=.env.local pager-bridge/src/index.js",
+    "smoke": "node scripts/smoke-production.mjs",
+    "test:pos": "node scripts/run-pos-test-cases.mjs",
+    "test": "npm run test:pos",
+    "test:dev-diag-off": "node scripts/verify-dev-diagnostics-off.mjs",
     "whatsapp:send-bill": "node --env-file=.env scripts/send-bill-whatsapp.mjs"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.1",
-    "mqtt": "^5.15.1",
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/static": "^9.1.3",
+    "aedes": "^0.51.3",
+    "better-sqlite3": "^12.11.1",
+    "concurrently": "^9.2.3",
+    "fastify": "^5.9.0",
+    "jose": "^6.2.3",
     "pdfkit": "^0.18.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.3"
+    "react-router-dom": "^6.22.3",
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3",
+    "socks": "^2.8.9"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.2.1",
-    "supabase": "^2.22.6",
     "vite": "^5.2.0"
   }
 }

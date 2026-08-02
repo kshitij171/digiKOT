@@ -58,6 +58,8 @@ export const billingService = {
   }) {
     try {
       const session = await tableSessionRepository.getActiveByTable(tableNumber);
+      // Reuse a non-void draft when still valid (e.g. reprint / WhatsApp / removal).
+      const existing = await billingRepository.getLatestDraftBillForTable(tableNumber);
 
       const {
         subtotal,
@@ -68,30 +70,77 @@ export const billingService = {
 
       const pct = Number(discountPercent) || 0;
       const { finalTotal } = applyDiscountPercent(grandTotalBeforeDiscount, pct);
+      const now = new Date().toISOString();
 
-      const billId = await billingRepository.createBill({
-        session_id: session?.id || null,
+      const payload = {
+        session_id: session?.id || existing?.session_id || null,
         table_number: tableNumber,
-        waiter_user_id: waiterUserId || null,
-        waiter_username: waiterUsername || null,
+        waiter_user_id: waiterUserId || existing?.waiter_user_id || null,
+        waiter_username: waiterUsername || existing?.waiter_username || null,
         subtotal,
         service_charge: serviceChargeAmount,
         tax: taxAmount,
         total: finalTotal,
         discount_percent: pct > 0 ? pct : null,
-        discount_applied_by: pct > 0 ? (waiterUserId || null) : null,
-        discount_applied_at: pct > 0 ? new Date().toISOString() : null,
-        printed: false,
-      });
-      await billingRepository.createBillItems(buildBillItemRows(billId, clearedKots));
-      await auditService.log({
-        actor_user_id: waiterUserId,
-        action: 'create_bill',
-        entity_type: 'bill',
-        entity_id: billId,
-        after_json: { tableNumber, total: finalTotal, discountPercent: pct || null, waiterUsername: waiterUsername || null },
-      });
+        discount_applied_by: pct > 0 ? (waiterUserId || existing?.discount_applied_by || null) : null,
+        discount_applied_at: pct > 0 ? now : null,
+      };
+
+      let billId;
+      if (existing) {
+        billId = existing.id;
+        await billingRepository.updateBill(billId, payload);
+        await billingRepository.replaceBillItems(billId, buildBillItemRows(billId, clearedKots));
+        await auditService.log({
+          actor_user_id: waiterUserId,
+          action: 'update_bill',
+          entity_type: 'bill',
+          entity_id: billId,
+          after_json: { tableNumber, total: finalTotal, discountPercent: pct || null, waiterUsername: waiterUsername || null },
+        });
+      } else {
+        billId = await billingRepository.createBill({
+          ...payload,
+          printed: false,
+          created_at: now,
+        });
+        await billingRepository.createBillItems(buildBillItemRows(billId, clearedKots));
+        await auditService.log({
+          actor_user_id: waiterUserId,
+          action: 'create_bill',
+          entity_type: 'bill',
+          entity_id: billId,
+          after_json: { tableNumber, total: finalTotal, discountPercent: pct || null, waiterUsername: waiterUsername || null },
+        });
+      }
       return billId;
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Latest non-void draft bill for a table (print / WhatsApp / removal).
+   * @param {number} tableNumber
+   * @returns {Promise<object|null>}
+   */
+  async getLatestDraftBillForTable(tableNumber) {
+    try {
+      return billingRepository.getLatestDraftBillForTable(tableNumber);
+    } catch (err) {
+      throw err;
+    }
+  },
+
+  /**
+   * Marks a bill as printed.
+   * @param {string} billId
+   * @returns {Promise<void>}
+   */
+  async markPrinted(billId) {
+    try {
+      if (!billId) return;
+      await billingRepository.markPrinted(billId);
     } catch (err) {
       throw err;
     }
